@@ -1,0 +1,27 @@
+header {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 10px;
+    gap: 4px;
+}
+
+.filter {
+    box-sizing: border-box;
+    width: 100%;
+}
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, 260px);
+    gap: 4px;
+}
+
+.cards > a {
+    display: flex;
+}
+
+.cards > a > img {
+    width: 100%;
+    overflow: hidden;
+    border-radius: 10px;
+}
