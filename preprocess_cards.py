@@ -23,6 +23,7 @@ def face_props(f, face):
     prop(f, face, "name")
     propr(f, face, "type", "type_line")
     propr(f, face, "cost", "mana_cost")
+    propr(f, face, "oracle", "oracle_text")
     img(f, face)
 
     if "flavor_name" in face and face["flavor_name"]:

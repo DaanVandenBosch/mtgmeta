@@ -23,9 +23,12 @@ const TYPE_SUBSTRING = 'substring';
 const PROP_MANA_COST = 'cost';
 const PROP_MANA_VALUE = 'cmc';
 const PROP_NAME = 'name';
+const PROP_ORACLE_TEXT = 'oracle';
 const PROP_RARITY = 'rarity';
 const PROP_TYPE = 'type';
-const PROPS = [PROP_MANA_COST, PROP_MANA_VALUE, PROP_NAME, PROP_RARITY, PROP_TYPE];
+const PROPS = [
+    PROP_MANA_COST, PROP_MANA_VALUE, PROP_NAME, PROP_ORACLE_TEXT, PROP_RARITY, PROP_TYPE
+];
 
 const MANA_WHITE = 'W';
 const MANA_BLUE = 'U';
@@ -257,6 +260,11 @@ class Query_Parser {
                     result = this.parse_mana_value_cond(operator);
                     break;
 
+                case 'oracle':
+                case 'o':
+                    result = this.parse_oracle_cond(operator);
+                    break;
+
                 case 'rarity':
                 case 'r':
                     result = this.parse_rarity_cond(operator);
@@ -375,6 +383,20 @@ class Query_Parser {
             prop: PROP_NAME,
             value,
         };
+    }
+
+    parse_oracle_cond(operator) {
+        if (operator !== ':' && operator !== '=') {
+            return null;
+        }
+
+        const value = this.parse_string().toLocaleLowerCase('en');
+
+        return {
+            type: TYPE_SUBSTRING,
+            prop: PROP_ORACLE_TEXT,
+            value,
+        }
     }
 
     parse_rarity_cond(operator) {
@@ -1241,6 +1263,19 @@ function run_test_suite() {
         'rarity!=',
         'r!=Special m:gggg GIANT',
         ['Craw Giant'],
+    );
+
+    test_query(
+        'oracle:',
+        'o:rampage t:giant',
+        ['Craw Giant', 'Frost Giant'],
+    );
+
+    // Same as :
+    test_query(
+        'oracle=',
+        'oracle=bloodfire',
+        ['Bloodfire Colossus', 'Bloodfire Dwarf', 'Bloodfire Enforcers', 'Bloodfire Infusion', 'Bloodfire Kavu'],
     );
 
     if (executed === succeeded) {
