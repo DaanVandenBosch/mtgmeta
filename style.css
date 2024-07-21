@@ -1,27 +1,67 @@
+:focus {
+    outline-color: rgb(238, 234, 229);
+    outline-width: 2px;
+    outline-style: none;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    height: 100vh;
+    margin: 0;
+    font-family: Cambria, serif;
+    background-color: rgb(189, 163, 143);
+    color: rgb(80, 59, 43);
+}
+
 header {
     display: flex;
     flex-direction: column;
-    margin-bottom: 10px;
     gap: 4px;
+    padding: 10px 10px 5px 10px;
 }
 
 .filter {
     box-sizing: border-box;
-    width: 100%;
+    padding: 3px 6px;
+    border: solid 2px rgb(238, 217, 190);
+    background-color: rgb(102, 78, 68);
+    color: rgb(235, 224, 209);
+    border-radius: 3px;
+    font-family: 'Trebuchet MS', sans-serif;
+    font-size: 1.1em;
+}
+
+.filter:focus {
+    outline-style: solid;
+}
+
+.result {
+    flex: 1;
+    overflow: auto;
 }
 
 .cards {
     display: grid;
     grid-template-columns: repeat(auto-fill, 260px);
-    gap: 4px;
+    justify-content: center;
+    gap: 6px;
+    margin: 5px 10px 10px 10px;
 }
 
-.cards > a {
+.card {
     display: flex;
+    border-radius: 11px;
 }
 
-.cards > a > img {
+.card:focus {
+    outline-style: solid;
+    outline-width: 5px;
+}
+
+.card>img {
     width: 100%;
     overflow: hidden;
-    border-radius: 10px;
+    border-radius: 11px;
 }

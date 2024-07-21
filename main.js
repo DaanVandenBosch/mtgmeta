@@ -64,9 +64,18 @@ let cards = [];
 async function init() {
     set_query_string_from_params();
 
-    addEventListener('popstate', () => set_query_string_from_params());
+    window.onpopstate = () => set_query_string_from_params();
 
-    get_el('.filter').onkeydown = e => {
+    const filter_el = get_el('.filter');
+
+    document.onkeydown = e => {
+        if (e.key === 'f' && document.activeElement !== filter_el) {
+            e.preventDefault();
+            filter_el.focus();
+        }
+    };
+
+    filter_el.onkeydown = e => {
         if (e.key === 'Enter') {
             set_query_string(e.currentTarget.value);
         }
@@ -194,6 +203,7 @@ function filter() {
 
     for (const card of result.slice(0, MAX_CARDS)) {
         const a = el('a');
+        a.className = 'card';
         a.href = card_scryfall_url(card);
         a.target = '_blank';
 
@@ -634,12 +644,12 @@ function parse_mana_symbol(input, start) {
     // Generic: {2}
     // Generic X: {X}
     // Snow: {S}
-    // Hybrid: {W/U}, {W/B}, {U/B}, {U/R}, {B/R}, {B/G}, {R/W}, {R/G}, {G/W}, {G/U}
+    // Hybrid: {W/U}, {W/B}, {U/B}, {U/R}, {B/R}, {B/G}, {R/G}, {R/W}, {G/W}, {G/U}
     // Monocolored hybrid: {2/W}
     // Colorless hybrid: {C/W}, {C/U}, {C/B}, {C/R}, {C/G}
     // Phyrexian: {W/P}, {U/P}, {B/P}, {R/P}, {G/P}
     // Phyrexian hybrid:
-    //  {W/U/P}, {W/B/P}, {U/B/P}, {U/R/P}, {B/R/P}, {B/G/P}, {R/W/P}, {R/G/P}, {G/W/P}, {G/U/P}
+    //  {W/U/P}, {W/B/P}, {U/B/P}, {U/R/P}, {B/R/P}, {B/G/P}, {R/G/P}, {R/W/P}, {G/W/P}, {G/U/P}
 
     let str = '';
     let generic = symbols.get(MANA_GENERIC) ?? null;
