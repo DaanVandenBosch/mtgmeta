@@ -31,9 +31,11 @@ def face_props(f, face):
 
 processed_cards = []
 digital_cards = dict()
+id_to_card = dict()
 
-def process_cards(cards):
-    for card in cards:
+# First argument should be the Scryfall "Oracle Cards" bulk dump.
+with open(sys.argv[1], encoding="utf8") as f:
+    for card in json.load(f):
         if card["set_type"] in ["memorabilia", "token"]:
             continue
 
@@ -49,6 +51,7 @@ def process_cards(cards):
 
         c = dict()
         prop(c, card, "cmc")
+        c["rarities"] = {card["rarity"]}
         c["sfuri"] = (
             card["scryfall_uri"]
             .removeprefix("https://scryfall.com/")
@@ -73,9 +76,7 @@ def process_cards(cards):
         else:
             processed_cards.append(c)
 
-# First argument should be the Scryfall "Oracle Cards" bulk dump.
-with open(sys.argv[1], encoding="utf8") as f:
-    process_cards(json.load(f))
+        id_to_card[card["oracle_id"]] = c
 
 # Second argument should be the Scryfall "Default Cards" bulk dump.
 with open(sys.argv[2], encoding="utf8") as f:
@@ -88,6 +89,12 @@ with open(sys.argv[2], encoding="utf8") as f:
         
         if card["oracle_id"] in digital_cards:
             processed_cards.append(digital_cards.pop(card["oracle_id"]))
+        
+        if card["oracle_id"] in id_to_card:
+            id_to_card[card["oracle_id"]]["rarities"].add(card["rarity"])
+
+for card in processed_cards:
+    card["rarities"] = list(card["rarities"])
 
 processed_cards.sort(
     key=lambda c: c.get("name") or f"{c["faces"][0]["name"]} // {c["faces"][1]["name"]}",
