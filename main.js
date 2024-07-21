@@ -81,21 +81,27 @@ async function init() {
 
 function set_query_string_from_params() {
     const params = new URLSearchParams(location.search);
-    set_query_string(params.get('q'), false);
+    set_query_string(params.get('q') ?? '');
 }
 
-function set_query_string(q, modify_history = true) {
+function set_query_string(q) {
     if (q === query_string) {
         return;
     }
 
     query_string = q;
-    get_el('.filter').value = q;
+    get_el('.filter').value = query_string;
 
-    if (modify_history) {
-        const params = new URLSearchParams(location.search);
-        params.set('q', query_string);
-        const new_url = params.size === 0 ? '' : ('?' + params.toString());
+    const params = new URLSearchParams(location.search);
+
+    if ((params.get('q') ?? '') !== query_string) {
+        if (query_string.length) {
+            params.set('q', query_string);
+        } else {
+            params.delete('q');
+        }
+
+        const new_url = params.size === 0 ? '/' : ('/?' + params.toString());
         history.pushState(null, null, new_url);
     }
 
