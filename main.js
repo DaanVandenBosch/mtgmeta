@@ -58,20 +58,48 @@ const RARITY_RANK = {
     [RARITY_BONUS]: 5,
 };
 
+let query_string = '';
 let cards = [];
 
 async function init() {
+    set_query_string_from_params();
+
+    addEventListener('popstate', () => set_query_string_from_params());
+
     get_el('.filter').onkeydown = e => {
         if (e.key === 'Enter') {
-            filter();
+            set_query_string(e.currentTarget.value);
         }
     };
 
     await load_cards();
 
-    if (window.location.hash.includes('tests')) {
+    if (location.hash.includes('tests')) {
         run_test_suite();
     }
+}
+
+function set_query_string_from_params() {
+    const params = new URLSearchParams(location.search);
+    set_query_string(params.get('q'), false);
+}
+
+function set_query_string(q, modify_history = true) {
+    if (q === query_string) {
+        return;
+    }
+
+    query_string = q;
+    get_el('.filter').value = q;
+
+    if (modify_history) {
+        const params = new URLSearchParams(location.search);
+        params.set('q', query_string);
+        const new_url = params.size === 0 ? '' : ('?' + params.toString());
+        history.pushState(null, null, new_url);
+    }
+
+    filter();
 }
 
 function assert(condition, message) {
@@ -154,8 +182,7 @@ function sort(prop, asc) {
 }
 
 function filter() {
-    const query_string = get_el('.filter').value;
-    const result = matching_cards(query_string, Nop_Logger, () => Nop_Logger);
+    const result = matching_cards(query_string, Console_Logger, () => Nop_Logger);
 
     const frag = document.createDocumentFragment();
 
@@ -804,7 +831,7 @@ function mana_cost_is_super_set(a, b, strict, logger) {
 
 function matching_cards(query_string, logger, card_logger) {
     const query = new Query_Parser().parse(query_string);
-    logger.log('query', query);
+    logger.log('query string', query_string, 'query', query);
     return cards.filter(card => matches_query(card, query, card_logger(card)));
 }
 
