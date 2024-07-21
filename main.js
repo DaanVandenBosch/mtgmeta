@@ -20,12 +20,12 @@ const TYPE_EVEN = 'even';
 const TYPE_ODD = 'odd';
 const TYPE_SUBSTRING = 'substring';
 
-const PROP_NAME = 'name';
-const PROP_TYPE = 'type';
-const PROP_CMC = 'cmc';
 const PROP_MANA_COST = 'cost';
+const PROP_MANA_VALUE = 'cmc';
+const PROP_NAME = 'name';
 const PROP_RARITY = 'rarity';
-const PROPS = [PROP_NAME, PROP_TYPE, PROP_CMC, PROP_MANA_COST, PROP_RARITY];
+const PROP_TYPE = 'type';
+const PROPS = [PROP_MANA_COST, PROP_MANA_VALUE, PROP_NAME, PROP_RARITY, PROP_TYPE];
 
 const MANA_WHITE = 'W';
 const MANA_BLUE = 'U';
@@ -142,7 +142,7 @@ function sort(prop, asc) {
             sort_fn = (a, b) =>
                 a.name.localeCompare(b.name, 'en', { ignorePunctuation: true });
             break;
-        case PROP_CMC:
+        case PROP_MANA_VALUE:
             sort_fn = (a, b) => a.cmc - b.cmc;
             break;
     }
@@ -246,9 +246,9 @@ class Query_Parser {
             const [keyword, operator] = this.parse_keyword_and_operator();
 
             switch (keyword) {
-                case 'type':
-                case 't':
-                    result = this.parse_type_cond(operator);
+                case 'mana':
+                case 'm':
+                    result = this.parse_mana_cost_cond(operator);
                     break;
 
                 case 'manavalue':
@@ -257,14 +257,14 @@ class Query_Parser {
                     result = this.parse_mana_value_cond(operator);
                     break;
 
-                case 'mana':
-                case 'm':
-                    result = this.parse_mana_cost_cond(operator);
-                    break;
-
                 case 'rarity':
                 case 'r':
                     result = this.parse_rarity_cond(operator);
+                    break;
+
+                case 'type':
+                case 't':
+                    result = this.parse_type_cond(operator);
                     break;
             }
         }
@@ -319,56 +319,6 @@ class Query_Parser {
         return [null, null];
     }
 
-    parse_type_cond(operator) {
-        if (operator !== ':' && operator !== '=') {
-            return null;
-        }
-
-        const value = this.parse_string();
-
-        if (value.length === 0) {
-            return null;
-        }
-
-        return {
-            type: TYPE_SUBSTRING,
-            prop: PROP_TYPE,
-            value: value.toLocaleLowerCase('en'),
-        };
-    }
-
-    parse_mana_value_cond(operator) {
-        const value_string = this.parse_word().toLocaleLowerCase('en');
-
-        if (operator === ':' || operator === '=') {
-            if (value_string === 'even') {
-                return {
-                    type: TYPE_EVEN,
-                    prop: PROP_CMC,
-                };
-            }
-
-            if (value_string === 'odd') {
-                return {
-                    type: TYPE_ODD,
-                    prop: PROP_CMC,
-                };
-            }
-        }
-
-        const value = parseInt(value_string, 10);
-
-        if (isNaN(value)) {
-            return null;
-        }
-
-        return {
-            type: this.operator_to_type(operator, TYPE_EQ),
-            prop: PROP_CMC,
-            value,
-        };
-    }
-
     parse_mana_cost_cond(operator) {
         const [symbols, len] = parse_mana_cost(this.query_string, this.pos);
 
@@ -382,6 +332,48 @@ class Query_Parser {
             type: this.operator_to_type(operator, TYPE_GE),
             prop: PROP_MANA_COST,
             value: symbols,
+        };
+    }
+
+    parse_mana_value_cond(operator) {
+        const value_string = this.parse_word().toLocaleLowerCase('en');
+
+        if (operator === ':' || operator === '=') {
+            if (value_string === 'even') {
+                return {
+                    type: TYPE_EVEN,
+                    prop: PROP_MANA_VALUE,
+                };
+            }
+
+            if (value_string === 'odd') {
+                return {
+                    type: TYPE_ODD,
+                    prop: PROP_MANA_VALUE,
+                };
+            }
+        }
+
+        const value = parseInt(value_string, 10);
+
+        if (isNaN(value)) {
+            return null;
+        }
+
+        return {
+            type: this.operator_to_type(operator, TYPE_EQ),
+            prop: PROP_MANA_VALUE,
+            value,
+        };
+    }
+
+    parse_name_cond() {
+        const value = this.parse_string().toLocaleLowerCase('en');
+
+        return {
+            type: TYPE_SUBSTRING,
+            prop: PROP_NAME,
+            value,
         };
     }
 
@@ -423,13 +415,21 @@ class Query_Parser {
         };
     }
 
-    parse_name_cond() {
-        const value = this.parse_string().toLocaleLowerCase('en');
+    parse_type_cond(operator) {
+        if (operator !== ':' && operator !== '=') {
+            return null;
+        }
+
+        const value = this.parse_string();
+
+        if (value.length === 0) {
+            return null;
+        }
 
         return {
             type: TYPE_SUBSTRING,
-            prop: PROP_NAME,
-            value,
+            prop: PROP_TYPE,
+            value: value.toLocaleLowerCase('en'),
         };
     }
 
