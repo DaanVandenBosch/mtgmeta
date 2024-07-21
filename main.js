@@ -4,7 +4,7 @@ if (document.body) {
     window.addEventListener('DOMContentLoaded', init);
 }
 
-const MAX_CARDS = 500;
+const MAX_CARDS = 100;
 
 const TYPE_TRUE = 'true';
 const TYPE_OR = 'or';
@@ -24,7 +24,8 @@ const PROP_NAME = 'name';
 const PROP_TYPE = 'type';
 const PROP_CMC = 'cmc';
 const PROP_MANA_COST = 'cost';
-const PROPS = [PROP_NAME, PROP_TYPE, PROP_CMC, PROP_MANA_COST];
+const PROP_RARITY = 'rarity';
+const PROPS = [PROP_NAME, PROP_TYPE, PROP_CMC, PROP_MANA_COST, PROP_RARITY];
 
 const MANA_WHITE = 'W';
 const MANA_BLUE = 'U';
@@ -37,6 +38,22 @@ const MANA_GENERIC_X = 'X'; // Generic cost of "X".
 const MANA_SNOW = 'S';
 const MANA_PHYREXIAN = 'P';
 const MANA_WUBRG = [MANA_WHITE, MANA_BLUE, MANA_BLACK, MANA_RED, MANA_GREEN];
+
+const RARITY_COMMON = 'common';
+const RARITY_UNCOMMON = 'uncommon';
+const RARITY_RARE = 'rare';
+const RARITY_MYTHIC = 'mythic';
+const RARITY_SPECIAL = 'special';
+const RARITY_BONUS = 'bonus';
+
+const RARITY_RANK = {
+    [RARITY_COMMON]: 0,
+    [RARITY_UNCOMMON]: 1,
+    [RARITY_RARE]: 2,
+    [RARITY_SPECIAL]: 3,
+    [RARITY_MYTHIC]: 4,
+    [RARITY_BONUS]: 5,
+};
 
 let cards = [];
 
@@ -135,7 +152,7 @@ function sort(prop, asc) {
 
 function filter() {
     const query_string = get_el('.filter').value;
-    const result = matching_cards(query_string, Nop_Logger, () => false);
+    const result = matching_cards(query_string, Nop_Logger, () => Nop_Logger);
 
     const frag = document.createDocumentFragment();
 
@@ -244,15 +261,20 @@ class Query_Parser {
                 case 'm':
                     result = this.parse_mana_cost_cond(operator);
                     break;
+
+                case 'rarity':
+                case 'r':
+                    result = this.parse_rarity_cond(operator);
+                    break;
             }
         }
 
-        if (result) {
-            return result;
-        } else {
+        if (result === null) {
             this.pos = start_pos;
             return this.parse_name_cond();
         }
+
+        return result;
     }
 
     parse_negation() {
@@ -363,6 +385,44 @@ class Query_Parser {
         };
     }
 
+    parse_rarity_cond(operator) {
+        const start_pos = this.pos;
+        let value = this.parse_regex(/common|uncommon|rare|mythic|special|bonus|[curmsb]/iy)
+            .toLocaleLowerCase('en');
+
+        if (!this.is_boundary()) {
+            this.pos = start_pos;
+            return null;
+        }
+
+        switch (value) {
+            case 'c':
+                value = RARITY_COMMON;
+                break;
+            case 'u':
+                value = RARITY_UNCOMMON;
+                break;
+            case 'r':
+                value = RARITY_RARE;
+                break;
+            case 'm':
+                value = RARITY_MYTHIC;
+                break;
+            case 's':
+                value = RARITY_SPECIAL;
+                break;
+            case 'b':
+                value = RARITY_BONUS;
+                break;
+        }
+
+        return {
+            type: this.operator_to_type(operator, TYPE_EQ),
+            prop: PROP_RARITY,
+            value,
+        };
+    }
+
     parse_name_cond() {
         const value = this.parse_string().toLocaleLowerCase('en');
 
@@ -388,6 +448,20 @@ class Query_Parser {
         return this.query_string.slice(start_pos, this.pos);
     }
 
+    parse_regex(regex) {
+        assert(regex.sticky, () => `Regex "${regex.source}" should be sticky.`);
+
+        regex.lastIndex = this.pos;
+        const m = regex.exec(this.query_string);
+
+        if (m === null) {
+            return null;
+        }
+
+        this.pos += m[0].length;
+        return m[0];
+    }
+
     operator_to_type(operator, colon_type) {
         switch (operator) {
             case ':':
@@ -407,22 +481,6 @@ class Query_Parser {
             default:
                 throw new Error(`Unknown operator "${operator}".`);
         }
-    }
-
-    parse_regex(regex) {
-        if (!regex.sticky) {
-            throw new Error(`Regex "${regex.source}" should be sticky.`);
-        }
-
-        regex.lastIndex = this.pos;
-        const m = regex.exec(this.query_string);
-
-        if (m === null) {
-            return null;
-        }
-
-        this.pos += m[0].length;
-        return m[0];
     }
 }
 
@@ -676,28 +734,9 @@ function mana_cost_eq(a, b, logger) {
     return true;
 }
 
-function mana_cost_gt(a, b, or_equal, logger) {
-    a = { ...a };
-    b = { ...b };
+function mana_cost_is_super_set(a, b, strict, logger) {
     let a_symbols = Object.keys(a).length;
-    let b_symbols = Object.keys(b).length;
-
-    // If only one has a generic cost, ensure the other has a generic cost too. This makes queries
-    // like mana<{R} return 0 cost cards.
-    const a_has_generic = MANA_GENERIC in a;
-    const b_has_generic = MANA_GENERIC in b;
-
-    if (a_has_generic !== b_has_generic) {
-        // Set generic to -1 if cost is null, to ensure null cost is less than zero cost. Otherwise
-        // set to 0 to ensure any non-null cost is greater than null cost.
-        if (!a_has_generic) {
-            a[MANA_GENERIC] = a_symbols === 0 ? -1 : 0;
-            a_symbols += 1;
-        } else {
-            b[MANA_GENERIC] = b_symbols === 0 ? -1 : 0;
-            b_symbols += 1;
-        }
-    }
+    const b_symbols = Object.keys(b).length;
 
     if (a_symbols < b_symbols) {
         logger.log(`a has fewer symbols than b.`, a, b);
@@ -708,15 +747,10 @@ function mana_cost_gt(a, b, or_equal, logger) {
     let b_total = 0;
 
     for (const [symbol, b_count] of Object.entries(b)) {
-        let a_count = a[symbol];
+        const a_count = a[symbol] ?? 0;
 
-        if (a_count === undefined || a_count < b_count) {
-            if (a_count === undefined) {
-                logger.log(`No symbol ${symbol} in a.`, a, b);
-            } else {
-                logger.log(`Symbol ${symbol} value ${a_count} < ${b_count}.`, a, b);
-            }
-
+        if (a_count < b_count) {
+            logger.log(`Symbol ${symbol} value ${a_count} < ${b_count}.`, a, b);
             return false;
         }
 
@@ -724,27 +758,36 @@ function mana_cost_gt(a, b, or_equal, logger) {
         b_total += b_count;
     }
 
-    if (or_equal) {
+    if (!strict) {
         return true;
     }
 
-    const result = a_total > b_total || a_symbols > b_symbols;
-
-    if (!result) {
-        logger.log(`a doesn't have more symbols than b.`, a, b);
+    if (a_total > b_total) {
+        return true;
     }
 
-    return result;
+    // If b is exactly zero cost, pretend a has a generic zero cost too. This makes queries like
+    // mana<{R} return 0 cost cards.
+    if (b[MANA_GENERIC] === 0 && b_symbols === 1 && !(MANA_GENERIC in a)) {
+        a_symbols += 1;
+    }
+
+    if (a_symbols > b_symbols) {
+        return true;
+    } else {
+        logger.log(`a doesn't have more symbols than b.`, a, b);
+        return false;
+    }
 }
 
-function matching_cards(query_string, logger, log_card) {
+function matching_cards(query_string, logger, card_logger) {
     const query = new Query_Parser().parse(query_string);
     logger.log('query', query);
-    return cards.filter(card => matches_query(card, query, log_card(card) ? logger : Nop_Logger));
+    return cards.filter(card => matches_query(card, query, card_logger(card)));
 }
 
 function matches_query(card, query, logger) {
-    logger.info(`evaluating query with "${card.name}"`, card);
+    logger.log(`evaluating query with "${card.name}"`, card);
 
     return matches_condition(card, query, logger);
 }
@@ -819,16 +862,16 @@ function matches_comparison_condition(card, condition, logger) {
                     result = !mana_cost_eq(value, condition.value, logger);
                     break;
                 case TYPE_GT:
-                    result = mana_cost_gt(value, condition.value, false, logger);
+                    result = mana_cost_is_super_set(value, condition.value, true, logger);
                     break;
                 case TYPE_LT:
-                    result = mana_cost_gt(condition.value, value, false, logger);
+                    result = mana_cost_is_super_set(condition.value, value, true, logger);
                     break;
                 case TYPE_GE:
-                    result = mana_cost_gt(value, condition.value, true, logger);
+                    result = mana_cost_is_super_set(value, condition.value, false, logger);
                     break;
                 case TYPE_LE:
-                    result = mana_cost_gt(condition.value, value, true, logger);
+                    result = mana_cost_is_super_set(condition.value, value, false, logger);
                     break;
                 default:
                     throw new Error(
@@ -841,27 +884,38 @@ function matches_comparison_condition(card, condition, logger) {
             }
         }
     } else {
+        let compare;
+
+        switch (condition.prop) {
+            case PROP_RARITY:
+                compare = (a, b) => RARITY_RANK[a] - RARITY_RANK[b];
+                break;
+            default:
+                compare = (a, b) => a - b;
+                break;
+        }
+
         for (const value of values) {
             let result;
 
             switch (condition.type) {
                 case TYPE_EQ:
-                    result = value === condition.value;
+                    result = compare(value, condition.value) === 0;
                     break;
                 case TYPE_NE:
-                    result = value !== condition.value;
+                    result = compare(value, condition.value) !== 0;
                     break;
                 case TYPE_GT:
-                    result = value > condition.value;
+                    result = compare(value, condition.value) > 0;
                     break;
                 case TYPE_LT:
-                    result = value < condition.value;
+                    result = compare(value, condition.value) < 0;
                     break;
                 case TYPE_GE:
-                    result = value >= condition.value;
+                    result = compare(value, condition.value) >= 0;
                     break;
                 case TYPE_LE:
-                    result = value <= condition.value;
+                    result = compare(value, condition.value) <= 0;
                     break;
                 case TYPE_EVEN:
                     result = value % 2 === 0;
@@ -910,11 +964,15 @@ function card_image_url(card) {
     return `https://cards.scryfall.io/normal/${img}`;
 }
 
-/** Gets the value of the given property of all faces of the given card. */
+/** Gets the value of the given logical property of all faces of the given card. */
 function card_prop_values(card, prop) {
+    if (prop === PROP_RARITY) {
+        return card.rarities;
+    }
+
     const props = [prop];
 
-    if (prop == PROP_NAME) {
+    if (prop === PROP_NAME) {
         props.push('flavor_name');
     }
 
@@ -1019,8 +1077,15 @@ function run_test_suite() {
     function test_query(name, query, expected_matches) {
         test(`${name} (${query})`, logger => {
             const expected = new Set(expected_matches);
-            const cards = matching_cards(query, logger, c => expected.has(c.name)).map(c => c.name);
-            assert_eq(new Set(cards), expected);
+            const cards = matching_cards(query, Nop_Logger, () => Nop_Logger);
+            const actual = new Set(cards.map(c => c.name));
+
+            if (!deep_eq(actual, expected) && actual.size <= 10) {
+                const log_set = actual.symmetricDifference(expected);
+                matching_cards(query, logger, c => (log_set.has(c.name) ? logger : Nop_Logger));
+            }
+
+            assert_eq(actual, expected);
         });
     }
 
@@ -1151,6 +1216,31 @@ function run_test_suite() {
         'mana<{R}',
         'm<{R} t:instant ve',
         ['Evermind', 'Intervention Pact'],
+    );
+
+    test_query(
+        'rarity=',
+        'rarity=c m>=ggg',
+        ['Feral Thallid', 'Kindercatch', 'Nyxborn Colossus'],
+    );
+
+    // Same as =
+    test_query(
+        'rarity:',
+        'r:c m>=ggg',
+        ['Feral Thallid', 'Kindercatch', 'Nyxborn Colossus'],
+    );
+
+    test_query(
+        'rarity<',
+        'RARity<UNcommon m>=ggg',
+        ['Feral Thallid', 'Kindercatch', 'Nyxborn Colossus'],
+    );
+
+    test_query(
+        'rarity!=',
+        'r!=Special m:gggg GIANT',
+        ['Craw Giant'],
     );
 
     if (executed === succeeded) {
