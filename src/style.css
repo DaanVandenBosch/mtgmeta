@@ -10,7 +10,7 @@ body {
     width: 100vw;
     height: 100vh;
     margin: 0;
-    font-family: Cambria, serif;
+    font-family: 'Trebuchet MS', sans-serif;
     background-color: rgb(189, 163, 143);
     color: rgb(80, 59, 43);
 }
@@ -22,7 +22,15 @@ header {
     padding: 10px 10px 5px 10px;
 }
 
+.filter-container {
+    display: flex;
+    flex-direction: row;
+    gap: 4px;
+    align-items: center;
+}
+
 .filter {
+    flex: 1;
     box-sizing: border-box;
     padding: 3px 6px;
     border: solid 2px rgb(238, 217, 190);
@@ -35,6 +43,11 @@ header {
 
 .filter:focus {
     outline-style: solid;
+}
+
+.sort-dir {
+    display: flex;
+    flex-direction: column;
 }
 
 .result {

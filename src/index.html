@@ -8,7 +8,22 @@
 
 <body>
     <header>
-        <input class="filter" autocomplete="off" autofocus>
+        <div class="filter-container">
+            <input class="filter" autocomplete="off" autofocus>
+            Sorted by
+            <select class="sort-prop" autocomplete="off">
+                <option value="name">Name</option>
+                <option value="cmc">Mana value</option>
+            </select>
+            <div class="sort-dir">
+                <label>
+                    <input type="radio" name="sort-dir" value="asc" checked autocomplete="off">Asc
+                </label>
+                <label>
+                    <input type="radio" name="sort-dir" value="desc" autocomplete="off">Desc
+                </label>
+            </div>
+        </div>
         <div class="result-summary"></div>
     </header>
     <div class="result" tabindex="-1">
