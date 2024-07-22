@@ -26,9 +26,9 @@ const PROP_NAME = 'name';
 const PROP_ORACLE_TEXT = 'oracle';
 const PROP_RARITY = 'rarity';
 const PROP_TYPE = 'type';
-const PROPS = [
+const PROPS = Object.freeze([
     PROP_MANA_COST, PROP_MANA_VALUE, PROP_NAME, PROP_ORACLE_TEXT, PROP_RARITY, PROP_TYPE
-];
+]);
 
 const MANA_WHITE = 'W';
 const MANA_BLUE = 'U';
@@ -40,7 +40,7 @@ const MANA_GENERIC = 'N'; // Specifc generic cost.
 const MANA_GENERIC_X = 'X'; // Generic cost of "X".
 const MANA_SNOW = 'S';
 const MANA_PHYREXIAN = 'P';
-const MANA_WUBRG = [MANA_WHITE, MANA_BLUE, MANA_BLACK, MANA_RED, MANA_GREEN];
+const MANA_WUBRG = Object.freeze([MANA_WHITE, MANA_BLUE, MANA_BLACK, MANA_RED, MANA_GREEN]);
 
 const RARITY_COMMON = 'common';
 const RARITY_UNCOMMON = 'uncommon';
@@ -49,28 +49,44 @@ const RARITY_MYTHIC = 'mythic';
 const RARITY_SPECIAL = 'special';
 const RARITY_BONUS = 'bonus';
 
-const RARITY_RANK = {
+const RARITY_RANK = Object.freeze({
     [RARITY_COMMON]: 0,
     [RARITY_UNCOMMON]: 1,
     [RARITY_RARE]: 2,
     [RARITY_SPECIAL]: 3,
     [RARITY_MYTHIC]: 4,
     [RARITY_BONUS]: 5,
+});
+
+const INPUT_QUERY_STRING = 'query_string';
+const INPUT_SORT_PROP = 'sort_prop';
+const INPUT_SORT_ASC = 'sort_asc';
+
+const SORT_PROP_TO_INDEX = Object.freeze({
+    [PROP_MANA_VALUE]: 0,
+    [PROP_NAME]: 1,
+});
+
+/** Static data that gets loaded once and then never changes. */
+const static = {
+    cards: [],
+    sort_indices: null,
 };
 
-let query_string = '';
-let cards = [];
-let sort_indices = null;
-let sort_index = sort_prop_to_index(PROP_NAME);
-let sort_asc = true;
+/** User input. */
+const inputs = {
+    [INPUT_QUERY_STRING]: '',
+    [INPUT_SORT_PROP]: PROP_NAME,
+    [INPUT_SORT_ASC]: true,
+};
 
 async function init() {
     Console_Logger.time('init');
 
     const params = get_params();
-    set_query_string_from_params(params);
+    set_inputs_from_params(params);
 
-    window.onpopstate = () => set_query_string_from_params(get_params());
+    window.onpopstate = () => set_inputs_from_params(get_params());
 
     const filter_el = get_el('.filter');
 
@@ -83,17 +99,17 @@ async function init() {
 
     filter_el.onkeydown = e => {
         if (e.key === 'Enter') {
-            set_query_string(e.currentTarget.value);
+            set_inputs({ [INPUT_QUERY_STRING]: e.currentTarget.value });
         }
     };
 
     get_el('.sort-prop').onchange = e => {
-        set_sort(sort_prop_to_index(e.currentTarget.value), sort_asc);
+        set_inputs({ [INPUT_SORT_PROP]: e.currentTarget.value });
     };
 
     for (const sort_dir_el of get_els('.sort-dir input')) {
         sort_dir_el.onchange = () => {
-            set_sort(sort_index, sort_dir_el.checked && sort_dir_el.value === 'asc');
+            set_inputs({ [INPUT_SORT_ASC]: sort_dir_el.checked && sort_dir_el.value === 'asc' });
         };
     }
 
@@ -106,60 +122,108 @@ async function init() {
     }
 }
 
-function get_params() {
-    return new URLSearchParams(location.search);
-}
-
-function set_query_string_from_params(params) {
-    set_query_string(params.get('q') ?? '');
-}
-
-function set_query_string(q) {
-    if (q === query_string) {
-        return;
-    }
-
-    query_string = q;
-    get_el('.filter').value = query_string;
-
+function set_inputs(new_inputs) {
     const params = get_params();
+    set_inputs_internal(new_inputs, params, true);
+}
 
-    if ((params.get('q') ?? '') !== query_string) {
-        if (query_string.length) {
-            params.set('q', query_string);
-        } else {
-            params.delete('q');
+function set_inputs_from_params(params) {
+    const new_inputs = {};
+
+    new_inputs[INPUT_QUERY_STRING] = params.get('q') ?? '';
+
+    const sort_order = params.get('o');
+
+    if (SORT_PROP_TO_INDEX[sort_order] === undefined) {
+        if (sort_order !== null) {
+            Console_Logger.error(`Invalid sort order in URL: ${sort_order}`);
         }
 
-        const new_url = params.size === 0 ? '/' : ('/?' + params.toString());
-        history.pushState(null, null, new_url);
+        new_inputs[INPUT_SORT_PROP] = PROP_NAME;
+    } else {
+        new_inputs[INPUT_SORT_PROP] = sort_order;
     }
 
-    filter(Console_Logger);
-}
+    const sort_dir = params.get('d');
 
-function sort_prop_to_index(prop) {
-    switch (prop) {
-        case PROP_MANA_VALUE:
-            return 0;
-        case PROP_NAME:
-            return 1;
-        default:
-            throw Error(`Can't sort by property "${prop}".`);
+    if (sort_dir !== 'a' && sort_dir !== 'd') {
+        if (sort_dir !== null) {
+            Console_Logger.error(`Invalid sort direction in URL: ${sort_dir}`);
+        }
+
+        new_inputs[INPUT_SORT_ASC] = true;
+    } else {
+        new_inputs[INPUT_SORT_ASC] = sort_dir === 'a';
     }
+
+    set_inputs_internal(new_inputs, null, false);
 }
 
-function set_sort(index, asc) {
-    if (index !== sort_index || asc !== sort_asc) {
-        sort_index = index;
-        sort_asc = asc;
+function set_inputs_internal(new_inputs, params, update_url) {
+    let any_changed = false;
+
+    for (const [k, v] of Object.entries(new_inputs)) {
+        if (inputs[k] === v) {
+            continue;
+        }
+
+        switch (k) {
+            case INPUT_QUERY_STRING: {
+                if (update_url) {
+                    if (v.length) {
+                        params.set('q', v);
+                    } else {
+                        params.delete('q');
+                    }
+                }
+
+                get_el('.filter').value = v;
+                break;
+            }
+            case INPUT_SORT_PROP: {
+                if (update_url) {
+                    params.set('o', v);
+                }
+
+                get_el('.sort-prop').value = v;
+                break;
+            }
+            case INPUT_SORT_ASC: {
+                if (update_url) {
+                    params.set('d', v ? 'a' : 'd');
+                }
+
+                get_el(`.sort-dir input[value=${v ? 'asc' : 'desc'}]`).checked = true;
+                break;
+            }
+            default:
+                throw Error(`Invalid input property ${k}.`);
+        }
+
+        inputs[k] = v;
+        any_changed = true;
+    }
+
+    if (any_changed) {
+        if (update_url) {
+            const new_search = params.size ? `?${params}` : '';
+
+            if (window.location.search !== new_search) {
+                window.history.pushState(null, null, `/${new_search}`);
+            }
+        }
+
         filter(Console_Logger);
     }
 }
 
+function get_params() {
+    return new URLSearchParams(window.location.search);
+}
+
 function assert(condition, message) {
     if (!condition) {
-        throw new Error(message ? message() : 'Assertion failed.');
+        throw Error(message ? message() : 'Assertion failed.');
     }
 }
 
@@ -216,17 +280,17 @@ async function load_cards(logger) {
     logger.time('load_cards');
 
     logger.time('load_cards_fetch');
-    cards = await (await fetch('cards.json')).json();
+    static.cards = await (await fetch('cards.json')).json();
     logger.time_end('load_cards_fetch');
 
-    for (const card of cards) {
+    for (const card of static.cards) {
         if (card.name === undefined) {
             card.name = (card.faces[0].name + ' // ' + card.faces[1].name);
         }
     }
 
     logger.time('load_cards_fetch_indices');
-    sort_indices = await (await fetch('cards.idx')).arrayBuffer();
+    static.sort_indices = await (await fetch('cards.idx')).arrayBuffer();
     logger.time_end('load_cards_fetch_indices');
 
     filter(logger);
@@ -236,7 +300,7 @@ async function load_cards(logger) {
 function filter(logger) {
     logger.info('Filtering cards.');
     logger.time('filter');
-    const result = matching_cards(query_string, logger, () => Nop_Logger);
+    const result = matching_cards(inputs.query_string, logger, () => Nop_Logger);
 
     const frag = document.createDocumentFragment();
     let count = 0;
@@ -588,7 +652,7 @@ class Query_Parser {
             case '<=':
                 return TYPE_LE;
             default:
-                throw new Error(`Unknown operator "${operator}".`);
+                throw Error(`Unknown operator "${operator}".`);
         }
     }
 }
@@ -901,18 +965,19 @@ function matching_cards(query_string, logger, card_logger) {
     logger.time('matching_cards_filter');
     let result;
 
-    if (sort_indices === null) {
-        result = cards.filter(card => matches_query(card, query, card_logger(card)));
+    if (static.sort_indices === null) {
+        result = static.cards.filter(card => matches_query(card, query, card_logger(card)));
     } else {
         result = [];
-        const len = cards.length;
+        const len = static.cards.length;
+        const sort_index = SORT_PROP_TO_INDEX[inputs.sort_prop];
         // View of a single sort index.
-        const view = new DataView(sort_indices, sort_index * 2 * len, 2 * len);
+        const view = new DataView(static.sort_indices, sort_index * 2 * len, 2 * len);
 
         for (let i = 0; i < len; i++) {
-            const view_idx = 2 * (sort_asc ? i : (len - 1 - i));
+            const view_idx = 2 * (inputs.sort_asc ? i : (len - 1 - i));
             const idx = view.getUint16(view_idx, true);
-            const card = cards[idx];
+            const card = static.cards[idx];
 
             if (matches_query(card, query, card_logger(card))) {
                 result.push(card);
@@ -1014,7 +1079,7 @@ function matches_comparison_condition(card, condition, logger) {
                     result = mana_cost_is_super_set(condition.value, value, false, logger);
                     break;
                 default:
-                    throw new Error(
+                    throw Error(
                         `Invalid condition type "${condition.type}" for property "${condition.prop}".`
                     );
             }
@@ -1067,7 +1132,7 @@ function matches_comparison_condition(card, condition, logger) {
                     result = value.toLocaleLowerCase('en').includes(condition.value);
                     break;
                 default:
-                    throw new Error(`Invalid condition type "${condition.type}".`);
+                    throw Error(`Invalid condition type "${condition.type}".`);
             }
 
             if (result) {

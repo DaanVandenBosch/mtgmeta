@@ -52,12 +52,14 @@ header {
 
 .result {
     flex: 1;
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: scroll;
 }
 
 .cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, 260px);
+    grid-template-columns: repeat(auto-fill, 244px);
+    grid-template-rows: repeat(auto-fill, 340px);
     justify-content: center;
     gap: 6px;
     margin: 5px 10px 10px 10px;
