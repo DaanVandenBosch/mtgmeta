@@ -101,7 +101,7 @@ async function init() {
 
     Console_Logger.time_end('init');
 
-    if (params.get('tests').toLocaleLowerCase('en') === 'true') {
+    if (params.get('tests')?.toLocaleLowerCase('en') === 'true') {
         run_test_suite();
     }
 }
