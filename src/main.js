@@ -193,7 +193,7 @@ function sort(prop, asc) {
             break;
     }
 
-    cards = cards.sort(asc ? sort_fn : (a, b) => -sort_fn(a, b));
+    cards.sort(asc ? sort_fn : (a, b) => -sort_fn(a, b));
 }
 
 function filter() {
