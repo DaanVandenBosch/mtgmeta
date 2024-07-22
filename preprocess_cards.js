@@ -1,9 +1,9 @@
+// Cards to exclude from the final data.
 const EXCLUDED_SET_TYPES = ['memorabilia', 'token'];
 const EXCLUDED_LAYOUTS = ['scheme', 'token', 'planar', 'emblem', 'vanguard', 'double_faced_token'];
 // We also exclude purely digital cards.
 
 const sf_bulk_info = await(await fetch('https://api.scryfall.com/bulk-data')).json();
-const oracle_cards = await get_card_data(sf_bulk_info, 'oracle_cards');
 
 const processed_cards = [];
 // We put digital cards in this map during the pass over the oracle cards. Then if, during the pass
@@ -12,6 +12,11 @@ const processed_cards = [];
 // ScryFall considers the most legible version (compare ).
 const id_to_digital_card = new Map;
 const id_to_card = new Map;
+const card_to_idx = new Map;
+
+// Process Scryfall "Oracle" cards.
+
+const oracle_cards = await get_card_data(sf_bulk_info, 'oracle_cards');
 
 for (const src_card of oracle_cards) {
     if (EXCLUDED_SET_TYPES.includes(src_card.set_type)) {
@@ -44,9 +49,14 @@ for (const src_card of oracle_cards) {
     if (src_card.digital) {
         id_to_digital_card.set(src_card.oracle_id, dst_card);
     } else {
+        const idx = processed_cards.length;
         processed_cards.push(dst_card);
+        id_to_card.set(src_card.oracle_id, dst_card);
+        card_to_idx.set(dst_card, idx);
     }
 }
+
+// Process Scryfall "Default" cards.
 
 const default_cards = await get_card_data(sf_bulk_info, 'default_cards');
 
@@ -63,24 +73,45 @@ for (const src_card of default_cards) {
         continue;
     }
 
-    const digital_card = id_to_digital_card.get(id);
+    let dst_card = id_to_digital_card.get(id);
 
-    if (digital_card) {
+    if (dst_card) {
         // The card is not just digital, add it to the list.
         id_to_digital_card.delete(id);
-        processed_cards.push(digital_card);
-    }
 
-    const dst_card = id_to_card.get(id);
+        const idx = processed_cards.length;
+        processed_cards.push(dst_card);
+        id_to_card.set(src_card.oracle_id, dst_card);
+        card_to_idx.set(dst_card, idx);
+    } else {
+        dst_card = id_to_card.get(id);
+    }
 
     if (dst_card) {
         dst_card.rarities.add(src_card.rarity);
     }
 }
 
-processed_cards.sort((a, b) =>
-    full_card_name(a).localeCompare(full_card_name(b), 'en', { ignorePunctuation: true })
+// Generate sort indices.
+
+const sort_indices = new ArrayBuffer(2 * 2 * processed_cards.length);
+
+add_sort_index(
+    sort_indices,
+    0,
+    processed_cards,
+    card_to_idx,
+    (a, b) => a.cmc - b.cmc,
 );
+add_sort_index(
+    sort_indices,
+    1,
+    processed_cards,
+    card_to_idx,
+    (a, b) => full_card_name(a).localeCompare(full_card_name(b), 'en', { ignorePunctuation: true }),
+);
+
+// Finally write our output files.
 
 Deno.writeTextFileSync(
     'src/cards.json',
@@ -89,6 +120,12 @@ Deno.writeTextFileSync(
         (_key, value) => (value instanceof Set ? [...value] : value),
     ),
 );
+Deno.writeFileSync(
+    'src/cards.idx',
+    new Uint8Array(sort_indices),
+);
+
+// Helper functions.
 
 async function get_card_data(sf_bulk_info, type) {
     for (const data of sf_bulk_info.data) {
@@ -148,4 +185,13 @@ function process_card_face(dst, src) {
 
 function full_card_name(card) {
     return card.name ?? (card.faces[0].name + ' // ' + card.faces[1].name);
+}
+
+function add_sort_index(buf, index_no, cards, card_to_idx, sort_fn) {
+    const view = new DataView(buf, index_no * 2 * cards.length, 2 * cards.length)
+    cards = [...cards].sort(sort_fn);
+
+    for (let i = 0, len = cards.length; i < len; i++) {
+        view.setUint16(2 * i, card_to_idx.get(cards[i]), true);
+    }
 }

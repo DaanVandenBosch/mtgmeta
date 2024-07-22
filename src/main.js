@@ -60,11 +60,17 @@ const RARITY_RANK = {
 
 let query_string = '';
 let cards = [];
+let sort_indices = null;
+let sort_index = sort_prop_to_index(PROP_NAME);
+let sort_asc = true;
 
 async function init() {
-    set_query_string_from_params();
+    Console_Logger.time('init');
 
-    window.onpopstate = () => set_query_string_from_params();
+    const params = get_params();
+    set_query_string_from_params(params);
+
+    window.onpopstate = () => set_query_string_from_params(get_params());
 
     const filter_el = get_el('.filter');
 
@@ -81,15 +87,30 @@ async function init() {
         }
     };
 
-    await load_cards();
+    get_el('.sort-prop').onchange = e => {
+        set_sort(sort_prop_to_index(e.currentTarget.value), sort_asc);
+    };
 
-    if (location.hash.includes('tests')) {
+    for (const sort_dir_el of get_els('.sort-dir input')) {
+        sort_dir_el.onchange = () => {
+            set_sort(sort_index, sort_dir_el.checked && sort_dir_el.value === 'asc');
+        };
+    }
+
+    await load_cards(Console_Logger);
+
+    Console_Logger.time_end('init');
+
+    if (params.get('tests').toLocaleLowerCase('en') === 'true') {
         run_test_suite();
     }
 }
 
-function set_query_string_from_params() {
-    const params = new URLSearchParams(location.search);
+function get_params() {
+    return new URLSearchParams(location.search);
+}
+
+function set_query_string_from_params(params) {
     set_query_string(params.get('q') ?? '');
 }
 
@@ -101,7 +122,7 @@ function set_query_string(q) {
     query_string = q;
     get_el('.filter').value = query_string;
 
-    const params = new URLSearchParams(location.search);
+    const params = get_params();
 
     if ((params.get('q') ?? '') !== query_string) {
         if (query_string.length) {
@@ -114,7 +135,26 @@ function set_query_string(q) {
         history.pushState(null, null, new_url);
     }
 
-    filter();
+    filter(Console_Logger);
+}
+
+function sort_prop_to_index(prop) {
+    switch (prop) {
+        case PROP_MANA_VALUE:
+            return 0;
+        case PROP_NAME:
+            return 1;
+        default:
+            throw Error(`Can't sort by property "${prop}".`);
+    }
+}
+
+function set_sort(index, asc) {
+    if (index !== sort_index || asc !== sort_asc) {
+        sort_index = index;
+        sort_asc = asc;
+        filter(Console_Logger);
+    }
 }
 
 function assert(condition, message) {
@@ -136,6 +176,8 @@ const Nop_Logger = {
     error() { },
     group() { },
     group_end() { },
+    time() { },
+    time_end() { },
 };
 
 const Console_Logger = {
@@ -144,6 +186,8 @@ const Console_Logger = {
     error(...args) { console.error(...args); },
     group(...args) { console.group(...args); },
     group_end(...args) { console.groupEnd(...args); },
+    time(...args) { console.time(...args); },
+    time_end(...args) { console.timeEnd(...args); },
 };
 
 class Mem_Logger {
@@ -154,6 +198,8 @@ class Mem_Logger {
     error(...args) { this.message('error', ...args); }
     group(...args) { this.message('group', ...args); }
     group_end(...args) { this.message('group_end', ...args); }
+    time(...args) { this.message('time', ...args); }
+    time_end(...args) { this.message('time_end', ...args); }
 
     message(level, ...args) {
         this.messages.push({ level, args });
@@ -166,9 +212,12 @@ class Mem_Logger {
     }
 }
 
-async function load_cards() {
-    const response = await fetch('cards.json');
-    cards = await response.json();
+async function load_cards(logger) {
+    logger.time('load_cards');
+
+    logger.time('load_cards_fetch');
+    cards = await (await fetch('cards.json')).json();
+    logger.time_end('load_cards_fetch');
 
     for (const card of cards) {
         if (card.name === undefined) {
@@ -176,32 +225,23 @@ async function load_cards() {
         }
     }
 
-    sort(PROP_NAME, true);
-    filter();
+    logger.time('load_cards_fetch_indices');
+    sort_indices = await (await fetch('cards.idx')).arrayBuffer();
+    logger.time_end('load_cards_fetch_indices');
+
+    filter(logger);
+    logger.time_end('load_cards');
 }
 
-function sort(prop, asc) {
-    let sort_fn;
-
-    switch (prop) {
-        case PROP_NAME:
-            sort_fn = (a, b) =>
-                a.name.localeCompare(b.name, 'en', { ignorePunctuation: true });
-            break;
-        case PROP_MANA_VALUE:
-            sort_fn = (a, b) => a.cmc - b.cmc;
-            break;
-    }
-
-    cards.sort(asc ? sort_fn : (a, b) => -sort_fn(a, b));
-}
-
-function filter() {
-    const result = matching_cards(query_string, Console_Logger, () => Nop_Logger);
+function filter(logger) {
+    logger.info('Filtering cards.');
+    logger.time('filter');
+    const result = matching_cards(query_string, logger, () => Nop_Logger);
 
     const frag = document.createDocumentFragment();
+    let count = 0;
 
-    for (const card of result.slice(0, MAX_CARDS)) {
+    for (const card of result) {
         const a = el('a');
         a.className = 'card';
         a.href = card_scryfall_url(card);
@@ -212,15 +252,19 @@ function filter() {
         a.append(img);
 
         frag.append(a);
+
+        if (++count >= MAX_CARDS) {
+            break;
+        }
     }
 
     const summary_el = get_el('.result-summary');
-    summary_el.innerHTML =
-        `Showing ${Math.min(result.length, MAX_CARDS)} of ${result.length} matching cards.`;
+    summary_el.innerHTML = `Showing ${count} of ${result.length} matching cards.`;
 
     const cards_el = get_el('.cards');
     cards_el.innerHTML = '';
     cards_el.append(frag);
+    logger.time_end('filter');
 }
 
 class Query_Parser {
@@ -846,9 +890,40 @@ function mana_cost_is_super_set(a, b, strict, logger) {
 }
 
 function matching_cards(query_string, logger, card_logger) {
+    logger.time('matching_cards');
+
+    logger.time('matching_cards_parse_query');
     const query = new Query_Parser().parse(query_string);
+    logger.time_end('matching_cards_parse_query');
+
     logger.log('query string', query_string, 'query', query);
-    return cards.filter(card => matches_query(card, query, card_logger(card)));
+
+    logger.time('matching_cards_filter');
+    let result;
+
+    if (sort_indices === null) {
+        result = cards.filter(card => matches_query(card, query, card_logger(card)));
+    } else {
+        result = [];
+        const len = cards.length;
+        // View of a single sort index.
+        const view = new DataView(sort_indices, sort_index * 2 * len, 2 * len);
+
+        for (let i = 0; i < len; i++) {
+            const view_idx = 2 * (sort_asc ? i : (len - 1 - i));
+            const idx = view.getUint16(view_idx, true);
+            const card = cards[idx];
+
+            if (matches_query(card, query, card_logger(card))) {
+                result.push(card);
+            }
+        }
+    }
+
+    logger.time_end('matching_cards_filter');
+
+    logger.time_end('matching_cards');
+    return result;
 }
 
 function matches_query(card, query, logger) {
@@ -1088,17 +1163,17 @@ function get_el(query) {
     return document.querySelector(query);
 }
 
+function get_els(query) {
+    return document.querySelectorAll(query);
+}
+
 function el(tagName) {
     return document.createElement(tagName);
 }
 
 function deep_eq(a, b) {
     if (a instanceof Set) {
-        if (!(b instanceof Set)) {
-            return false;
-        }
-
-        return a.size == b.size && a.isSubsetOf(b);
+        return b instanceof Set && a.size == b.size && a.isSubsetOf(b);
     } else {
         return a === b;
     }
@@ -1115,6 +1190,7 @@ function to_string(object) {
 }
 
 function run_test_suite() {
+    Console_Logger.time('run_test_suite');
     let executed = 0;
     let succeeded = 0;
 
@@ -1327,4 +1403,6 @@ function run_test_suite() {
         Console_Logger.info(`Ran ${executed} tests, ${executed - succeeded} failed.`);
         alert('Tests failed!');
     }
+
+    Console_Logger.time_end('run_test_suite');
 }
