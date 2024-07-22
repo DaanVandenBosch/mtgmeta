@@ -1,53 +1,110 @@
 :focus {
-    outline-color: rgb(238, 234, 229);
+    outline-color: var(--light);
     outline-width: 2px;
     outline-style: none;
 }
 
 body {
+    --dark: rgb(56, 41, 41);
+    --very-dark: rgb(31, 18, 18);
+    --light: rgb(240, 232, 232);
+    --hilight: rgb(255, 99, 99);
+
     display: flex;
     flex-direction: column;
     width: 100vw;
     height: 100vh;
     margin: 0;
     font-family: 'Trebuchet MS', sans-serif;
-    background-color: rgb(189, 163, 143);
-    color: rgb(80, 59, 43);
+    background-color: var(--light);
+    color: var(--dark);
 }
 
 header {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 10px 10px 5px 10px;
+    padding: 10px;
+    background-color: var(--dark);
+    color: var(--light);
 }
 
 .filter-container {
     display: flex;
     flex-direction: row;
-    gap: 4px;
+    gap: 10px;
     align-items: center;
 }
 
 .filter {
     flex: 1;
     box-sizing: border-box;
-    padding: 3px 6px;
-    border: solid 2px rgb(238, 217, 190);
-    background-color: rgb(102, 78, 68);
-    color: rgb(235, 224, 209);
-    border-radius: 3px;
+    height: 32px;
+    padding: 5px 10px;
+    border: none;
+    background-color: var(--very-dark);
+    color: var(--light);
+    border-radius: 5px;
     font-family: 'Trebuchet MS', sans-serif;
-    font-size: 1.1em;
+    font-size: 18px;
 }
 
 .filter:focus {
     outline-style: solid;
 }
 
+.sort-prop {
+    background-color: var(--very-dark);
+    color: var(--light);
+    height: 32px;
+    padding: 5px 10px;
+    border: none;
+    border-radius: 5px;
+    font-size: 16px;
+}
+
+.sort-prop:focus {
+    outline-color: var(--light);
+    outline-width: 2px;
+    outline-style: solid;
+}
+
 .sort-dir {
     display: flex;
     flex-direction: column;
+    gap: 2px;
+}
+
+.sort-dir>label {
+    position: relative;
+    background-color: var(--very-dark);
+    color: var(--light);
+    padding: 0 4px;
+    border: solid 2px var(--light);
+    border-radius: 5px;
+}
+
+.sort-dir>label:focus-within {
+    outline-color: var(--light);
+    outline-width: 2px;
+    outline-style: solid;
+    border-color: var(--very-dark);
+}
+
+.sort-dir>label:has(input[type=radio]:checked) {
+    background-color: var(--light);
+    color: var(--dark);
+}
+
+.sort-dir>label>input[type=radio] {
+    position: absolute;
+    appearance: none;
+    background-color: transparent;
+    border: none;
+}
+
+.result-summary {
+    color: rgb(209, 200, 200);
+    font-size: 0.9em;
 }
 
 .result {
@@ -62,7 +119,7 @@ header {
     grid-template-rows: repeat(auto-fill, 340px);
     justify-content: center;
     gap: 6px;
-    margin: 5px 10px 10px 10px;
+    margin: 10px;
 }
 
 .card {
@@ -71,8 +128,9 @@ header {
 }
 
 .card:focus {
-    outline-style: solid;
+    outline-color: var(--hilight);
     outline-width: 5px;
+    outline-style: solid;
 }
 
 .card>img {
