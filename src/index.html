@@ -8,23 +8,23 @@
 
 <body>
     <header>
-        <div class="filter-container">
-            <input class="filter" autocomplete="off" autofocus>
-            Sorted by
-            <select class="sort-prop" autocomplete="off">
+        <div class="filter_container">
+            <input class="query" autocomplete="off" autofocus>
+            sorted by
+            <select class="sort_order" autocomplete="off">
                 <option value="name">Name</option>
                 <option value="cmc">Mana value</option>
             </select>
-            <div class="sort-dir">
+            <div class="sort_dir">
                 <label>
-                    <input type="radio" name="sort-dir" value="asc" checked autocomplete="off">Asc
+                    <input type="radio" name="sort_dir" value="asc" checked autocomplete="off">Asc
                 </label>
                 <label>
-                    <input type="radio" name="sort-dir" value="desc" autocomplete="off">Desc
+                    <input type="radio" name="sort_dir" value="desc" autocomplete="off">Desc
                 </label>
             </div>
         </div>
-        <div class="result-summary"></div>
+        <div class="result_summary"></div>
     </header>
     <div class="result" tabindex="-1">
         <div class="cards" tabindex="-1"></div>

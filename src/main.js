@@ -58,11 +58,7 @@ const RARITY_RANK = Object.freeze({
     [RARITY_BONUS]: 5,
 });
 
-const INPUT_QUERY_STRING = 'query_string';
-const INPUT_SORT_PROP = 'sort_prop';
-const INPUT_SORT_ASC = 'sort_asc';
-
-const SORT_PROP_TO_INDEX = Object.freeze({
+const SORT_ORDER_TO_INDEX = Object.freeze({
     [PROP_MANA_VALUE]: 0,
     [PROP_NAME]: 1,
 });
@@ -74,44 +70,59 @@ const static = {
 };
 
 /** User input. */
+const INPUT_QUERY_STRING = 'query_string';
+const INPUT_SORT_ORDER = 'sort_order';
+const INPUT_SORT_ASC = 'sort_asc';
+
 const inputs = {
     [INPUT_QUERY_STRING]: '',
-    [INPUT_SORT_PROP]: PROP_NAME,
+    [INPUT_SORT_ORDER]: PROP_NAME,
     [INPUT_SORT_ASC]: true,
+};
+
+const ui = {
+    query_el: null,
+    sort_order_el: null,
+    sort_dir_asc_el: null,
+    sort_dir_desc_el: null,
+    result_summary_el: null,
+    result_cards_el: null,
 };
 
 async function init() {
     Console_Logger.time('init');
+
+    ui.query_el = get_el('.query');
+    ui.sort_order_el = get_el('.sort_order');
+    ui.sort_dir_asc_el = get_el('.sort_dir input[value=asc]');
+    ui.sort_dir_desc_el = get_el('.sort_dir input[value=desc]');
+    ui.result_summary_el = get_el('.result_summary');
+    ui.result_cards_el = get_el('.cards');
 
     const params = get_params();
     set_inputs_from_params(params);
 
     window.onpopstate = () => set_inputs_from_params(get_params());
 
-    const filter_el = get_el('.filter');
-
     document.onkeydown = e => {
-        if (e.key === 'f' && document.activeElement !== filter_el) {
+        if (e.key === 'f' && document.activeElement !== ui.query_el) {
             e.preventDefault();
-            filter_el.focus();
+            ui.query_el.focus();
         }
     };
 
-    filter_el.onkeydown = e => {
+    ui.query_el.onkeydown = e => {
         if (e.key === 'Enter') {
             set_inputs({ [INPUT_QUERY_STRING]: e.currentTarget.value });
         }
     };
 
-    get_el('.sort-prop').onchange = e => {
-        set_inputs({ [INPUT_SORT_PROP]: e.currentTarget.value });
+    ui.sort_order_el.onchange = e => {
+        set_inputs({ [INPUT_SORT_ORDER]: e.currentTarget.value });
     };
 
-    for (const sort_dir_el of get_els('.sort-dir input')) {
-        sort_dir_el.onchange = () => {
-            set_inputs({ [INPUT_SORT_ASC]: sort_dir_el.checked && sort_dir_el.value === 'asc' });
-        };
-    }
+    ui.sort_dir_asc_el.onchange = e => set_inputs({ [INPUT_SORT_ASC]: e.currentTarget.checked });
+    ui.sort_dir_desc_el.onchange = e => set_inputs({ [INPUT_SORT_ASC]: !e.currentTarget.checked });
 
     await load_cards(Console_Logger);
 
@@ -134,14 +145,14 @@ function set_inputs_from_params(params) {
 
     const sort_order = params.get('o');
 
-    if (SORT_PROP_TO_INDEX[sort_order] === undefined) {
+    if (SORT_ORDER_TO_INDEX[sort_order] === undefined) {
         if (sort_order !== null) {
             Console_Logger.error(`Invalid sort order in URL: ${sort_order}`);
         }
 
-        new_inputs[INPUT_SORT_PROP] = PROP_NAME;
+        new_inputs[INPUT_SORT_ORDER] = PROP_NAME;
     } else {
-        new_inputs[INPUT_SORT_PROP] = sort_order;
+        new_inputs[INPUT_SORT_ORDER] = sort_order;
     }
 
     const sort_dir = params.get('d');
@@ -177,15 +188,15 @@ function set_inputs_internal(new_inputs, params, update_url) {
                     }
                 }
 
-                get_el('.filter').value = v;
+                ui.query_el.value = v;
                 break;
             }
-            case INPUT_SORT_PROP: {
+            case INPUT_SORT_ORDER: {
                 if (update_url) {
                     params.set('o', v);
                 }
 
-                get_el('.sort-prop').value = v;
+                ui.sort_order_el.value = v;
                 break;
             }
             case INPUT_SORT_ASC: {
@@ -193,7 +204,7 @@ function set_inputs_internal(new_inputs, params, update_url) {
                     params.set('d', v ? 'a' : 'd');
                 }
 
-                get_el(`.sort-dir input[value=${v ? 'asc' : 'desc'}]`).checked = true;
+                (v ? ui.sort_dir_asc_el : ui.sort_dir_desc_el).checked = true;
                 break;
             }
             default:
@@ -300,7 +311,8 @@ async function load_cards(logger) {
 function filter(logger) {
     logger.info('Filtering cards.');
     logger.time('filter');
-    const result = matching_cards(inputs.query_string, logger, () => Nop_Logger);
+
+    const result = matching_cards(inputs[INPUT_QUERY_STRING], logger, () => Nop_Logger);
 
     const frag = document.createDocumentFragment();
     let count = 0;
@@ -322,12 +334,11 @@ function filter(logger) {
         }
     }
 
-    const summary_el = get_el('.result-summary');
-    summary_el.innerHTML = `Showing ${count} of ${result.length} matching cards.`;
+    ui.result_summary_el.innerHTML = `Showing ${count} of ${result.length} matching cards.`;
 
-    const cards_el = get_el('.cards');
-    cards_el.innerHTML = '';
-    cards_el.append(frag);
+    ui.result_cards_el.innerHTML = '';
+    ui.result_cards_el.append(frag);
+
     logger.time_end('filter');
 }
 
@@ -970,12 +981,12 @@ function matching_cards(query_string, logger, card_logger) {
     } else {
         result = [];
         const len = static.cards.length;
-        const sort_index = SORT_PROP_TO_INDEX[inputs.sort_prop];
+        const sort_index = SORT_ORDER_TO_INDEX[inputs[INPUT_SORT_ORDER]];
         // View of a single sort index.
         const view = new DataView(static.sort_indices, sort_index * 2 * len, 2 * len);
 
         for (let i = 0; i < len; i++) {
-            const view_idx = 2 * (inputs.sort_asc ? i : (len - 1 - i));
+            const view_idx = 2 * (inputs[INPUT_SORT_ASC] ? i : (len - 1 - i));
             const idx = view.getUint16(view_idx, true);
             const card = static.cards[idx];
 
@@ -1225,11 +1236,13 @@ function card_prop_values(card, prop) {
 }
 
 function get_el(query) {
-    return document.querySelector(query);
-}
+    const element = document.querySelector(query);
 
-function get_els(query) {
-    return document.querySelectorAll(query);
+    if (element === null) {
+        throw Error(`No element found for query "${query}".`);
+    }
+
+    return element;
 }
 
 function el(tagName) {
