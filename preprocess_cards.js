@@ -27,10 +27,19 @@ for (const src_card of oracle_cards) {
         continue;
     }
 
+    const sfuri = src_card.scryfall_uri
+        .replace('https://scryfall.com/', '')
+        .replace(/\?utm_source=api$/, '');
+
+    const formats = Object.entries(src_card.legalities)
+        .filter(([_, v]) => v !== 'not_legal' && v !== 'banned')
+        .map(([k]) => k);
+
     const dst_card = {
         cmc: src_card.cmc,
         rarities: new Set([src_card.rarity]),
-        sfuri: src_card.scryfall_uri.replace('https://scryfall.com/', '').replace(/\?utm_source=api$/, ''),
+        sfuri,
+        formats,
     };
 
     process_card_img_uri(dst_card, src_card);
@@ -96,19 +105,26 @@ for (const src_card of default_cards) {
 
 const sort_indices = new ArrayBuffer(2 * 2 * processed_cards.length);
 
+function name_compare(a, b) {
+    return full_card_name(a).localeCompare(full_card_name(b), 'en', { ignorePunctuation: true });
+}
+
 add_sort_index(
     sort_indices,
     0,
     processed_cards,
     card_to_idx,
-    (a, b) => a.cmc - b.cmc,
+    (a, b) => {
+        const order = a.cmc - b.cmc;
+        return order === 0 ? name_compare(a, b) : order;
+    },
 );
 add_sort_index(
     sort_indices,
     1,
     processed_cards,
     card_to_idx,
-    (a, b) => full_card_name(a).localeCompare(full_card_name(b), 'en', { ignorePunctuation: true }),
+    name_compare,
 );
 
 // Finally write our output files.

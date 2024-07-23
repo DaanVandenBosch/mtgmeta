@@ -20,6 +20,7 @@ const TYPE_EVEN = 'even';
 const TYPE_ODD = 'odd';
 const TYPE_SUBSTRING = 'substring';
 
+const PROP_FORMATS = 'formats';
 const PROP_MANA_COST = 'cost';
 const PROP_MANA_VALUE = 'cmc';
 const PROP_NAME = 'name';
@@ -58,6 +59,16 @@ const RARITY_RANK = Object.freeze({
     [RARITY_BONUS]: 5,
 });
 
+const POOL_ALL = 'all';
+const POOL_PREMODERN_PAUPER = 'pmp';
+const POOL_PREMODERN_PAUPER_COMMANDER = 'pmpc';
+
+const POOLS = {
+    [POOL_ALL]: null,
+    [POOL_PREMODERN_PAUPER]: null,
+    [POOL_PREMODERN_PAUPER_COMMANDER]: null,
+};
+
 const SORT_ORDER_TO_INDEX = Object.freeze({
     [PROP_MANA_VALUE]: 0,
     [PROP_NAME]: 1,
@@ -71,17 +82,26 @@ const static = {
 
 /** User input. */
 const INPUT_QUERY_STRING = 'query_string';
+const INPUT_POOL = 'pool';
 const INPUT_SORT_ORDER = 'sort_order';
 const INPUT_SORT_ASC = 'sort_asc';
 
+const DEFAULT_QUERY_STRING = '';
+const DEFAULT_POOL = POOL_ALL;
+const DEFAULT_SORT_ORDER = PROP_NAME;
+const DEFAULT_SORT_ASC = true;
+
 const inputs = {
-    [INPUT_QUERY_STRING]: '',
-    [INPUT_SORT_ORDER]: PROP_NAME,
-    [INPUT_SORT_ASC]: true,
+    [INPUT_QUERY_STRING]: DEFAULT_QUERY_STRING,
+    [INPUT_POOL]: DEFAULT_POOL,
+    [INPUT_SORT_ORDER]: DEFAULT_SORT_ORDER,
+    [INPUT_SORT_ASC]: DEFAULT_SORT_ASC,
 };
 
+/** All DOM elements that the user interacts with. */
 const ui = {
     query_el: null,
+    pool_el: null,
     sort_order_el: null,
     sort_dir_asc_el: null,
     sort_dir_desc_el: null,
@@ -92,7 +112,15 @@ const ui = {
 async function init() {
     Console_Logger.time('init');
 
+    POOLS[POOL_ALL] =
+        parse_query('');
+    POOLS[POOL_PREMODERN_PAUPER] =
+        parse_query('format:premodern rarity:common');
+    POOLS[POOL_PREMODERN_PAUPER_COMMANDER] =
+        parse_query('format:premodern rarity:uncommon type:creature');
+
     ui.query_el = get_el('.query');
+    ui.pool_el = get_el('.pool');
     ui.sort_order_el = get_el('.sort_order');
     ui.sort_dir_asc_el = get_el('.sort_dir input[value=asc]');
     ui.sort_dir_desc_el = get_el('.sort_dir input[value=desc]');
@@ -117,10 +145,8 @@ async function init() {
         }
     };
 
-    ui.sort_order_el.onchange = e => {
-        set_inputs({ [INPUT_SORT_ORDER]: e.currentTarget.value });
-    };
-
+    ui.pool_el.onchange = e => set_inputs({ [INPUT_POOL]: e.currentTarget.value });
+    ui.sort_order_el.onchange = e => set_inputs({ [INPUT_SORT_ORDER]: e.currentTarget.value });
     ui.sort_dir_asc_el.onchange = e => set_inputs({ [INPUT_SORT_ASC]: e.currentTarget.checked });
     ui.sort_dir_desc_el.onchange = e => set_inputs({ [INPUT_SORT_ASC]: !e.currentTarget.checked });
 
@@ -141,16 +167,28 @@ function set_inputs(new_inputs) {
 function set_inputs_from_params(params) {
     const new_inputs = {};
 
-    new_inputs[INPUT_QUERY_STRING] = params.get('q') ?? '';
+    new_inputs[INPUT_QUERY_STRING] = params.get('q') ?? DEFAULT_QUERY_STRING;
+
+    const pool = params.get('p');
+
+    if (!(pool in POOLS)) {
+        if (pool !== null) {
+            Console_Logger.error(`Invalid pool in URL: ${pool}`);
+        }
+
+        new_inputs[INPUT_POOL] = DEFAULT_POOL;
+    } else {
+        new_inputs[INPUT_POOL] = pool;
+    }
 
     const sort_order = params.get('o');
 
-    if (SORT_ORDER_TO_INDEX[sort_order] === undefined) {
+    if (!(sort_order in SORT_ORDER_TO_INDEX)) {
         if (sort_order !== null) {
             Console_Logger.error(`Invalid sort order in URL: ${sort_order}`);
         }
 
-        new_inputs[INPUT_SORT_ORDER] = PROP_NAME;
+        new_inputs[INPUT_SORT_ORDER] = DEFAULT_SORT_ORDER;
     } else {
         new_inputs[INPUT_SORT_ORDER] = sort_order;
     }
@@ -162,7 +200,7 @@ function set_inputs_from_params(params) {
             Console_Logger.error(`Invalid sort direction in URL: ${sort_dir}`);
         }
 
-        new_inputs[INPUT_SORT_ASC] = true;
+        new_inputs[INPUT_SORT_ASC] = DEFAULT_SORT_ASC;
     } else {
         new_inputs[INPUT_SORT_ASC] = sort_dir === 'a';
     }
@@ -178,32 +216,36 @@ function set_inputs_internal(new_inputs, params, update_url) {
             continue;
         }
 
+        let default_value;
+        let param;
+        let param_value;
+
         switch (k) {
             case INPUT_QUERY_STRING: {
-                if (update_url) {
-                    if (v.length) {
-                        params.set('q', v);
-                    } else {
-                        params.delete('q');
-                    }
-                }
-
+                param = 'q';
+                default_value = DEFAULT_QUERY_STRING;
+                param_value = v;
                 ui.query_el.value = v;
                 break;
             }
+            case INPUT_POOL: {
+                param = 'p';
+                default_value = DEFAULT_POOL;
+                param_value = v;
+                ui.pool_el.value = v;
+                break;
+            }
             case INPUT_SORT_ORDER: {
-                if (update_url) {
-                    params.set('o', v);
-                }
-
+                param = 'o';
+                default_value = DEFAULT_SORT_ORDER;
+                param_value = v;
                 ui.sort_order_el.value = v;
                 break;
             }
             case INPUT_SORT_ASC: {
-                if (update_url) {
-                    params.set('d', v ? 'a' : 'd');
-                }
-
+                param = 'd';
+                default_value = DEFAULT_SORT_ASC;
+                param_value = v ? 'a' : 'd';
                 (v ? ui.sort_dir_asc_el : ui.sort_dir_desc_el).checked = true;
                 break;
             }
@@ -212,6 +254,15 @@ function set_inputs_internal(new_inputs, params, update_url) {
         }
 
         inputs[k] = v;
+
+        if (update_url) {
+            if (v === default_value) {
+                params.delete(param);
+            } else {
+                params.set(param, param_value);
+            }
+        }
+
         any_changed = true;
     }
 
@@ -342,6 +393,45 @@ function filter(logger) {
     logger.time_end('filter');
 }
 
+function create_conjunction_cond(...args) {
+    assert(args.length >= 1);
+
+    const conditions = [];
+
+    for (const arg of args) {
+        switch (arg.type) {
+            case TYPE_TRUE:
+                // Has no effect on conjunction.
+                break;
+            case TYPE_AND:
+                conditions.push(...arg.conditions);
+                break;
+            default:
+                conditions.push(arg);
+                break;
+        }
+    }
+
+    if (conditions.length === 0) {
+        // All were true.
+        assert_eq(args[0].type, TYPE_TRUE);
+        return args[0];
+    }
+
+    if (conditions.length === 1) {
+        return args[0];
+    }
+
+    return {
+        type: TYPE_AND,
+        conditions,
+    };
+}
+
+function parse_query(query_string) {
+    return new Query_Parser().parse(query_string);
+}
+
 class Query_Parser {
     parse(query_string) {
         this.query_string = query_string;
@@ -411,6 +501,11 @@ class Query_Parser {
             const [keyword, operator] = this.parse_keyword_and_operator();
 
             switch (keyword) {
+                case 'format':
+                case 'f':
+                    result = this.parse_format_cond(operator);
+                    break;
+
                 case 'mana':
                 case 'm':
                     result = this.parse_mana_cost_cond(operator);
@@ -487,6 +582,20 @@ class Query_Parser {
 
         this.pos = start_pos;
         return [null, null];
+    }
+
+    parse_format_cond(operator) {
+        if (operator !== ':' && operator !== '=') {
+            return null;
+        }
+
+        const value = this.parse_string().toLocaleLowerCase('en');
+
+        return {
+            type: TYPE_EQ,
+            prop: PROP_FORMATS,
+            value,
+        }
     }
 
     parse_mana_cost_cond(operator) {
@@ -968,10 +1077,11 @@ function matching_cards(query_string, logger, card_logger) {
     logger.time('matching_cards');
 
     logger.time('matching_cards_parse_query');
-    const query = new Query_Parser().parse(query_string);
+    const user_query = parse_query(query_string);
     logger.time_end('matching_cards_parse_query');
 
-    logger.log('query string', query_string, 'query', query);
+    const query = create_conjunction_cond(user_query, POOLS[inputs.pool]);
+    logger.log('query string', query_string, 'user query', user_query, 'final query', query);
 
     logger.time('matching_cards_filter');
     let result;
@@ -1100,7 +1210,7 @@ function matches_comparison_condition(card, condition, logger) {
             }
         }
     } else {
-        let compare;
+        let compare = null;
 
         switch (condition.prop) {
             case PROP_RARITY:
@@ -1116,10 +1226,10 @@ function matches_comparison_condition(card, condition, logger) {
 
             switch (condition.type) {
                 case TYPE_EQ:
-                    result = compare(value, condition.value) === 0;
+                    result = value === condition.value;
                     break;
                 case TYPE_NE:
-                    result = compare(value, condition.value) !== 0;
+                    result = value !== condition.value;
                     break;
                 case TYPE_GT:
                     result = compare(value, condition.value) > 0;
@@ -1180,10 +1290,12 @@ function card_image_url(card) {
     return `https://cards.scryfall.io/normal/${img}`;
 }
 
-/** Gets the value of the given logical property of all faces of the given card. */
+/** Gets the value(s) of the given logical property of all faces of the given card. */
 function card_prop_values(card, prop) {
     if (prop === PROP_RARITY) {
         return card.rarities;
+    } else if (prop === PROP_FORMATS) {
+        return card.formats;
     }
 
     const props = [prop];
@@ -1473,6 +1585,19 @@ function run_test_suite() {
         'oracle=',
         'oracle=bloodfire',
         ['Bloodfire Colossus', 'Bloodfire Dwarf', 'Bloodfire Enforcers', 'Bloodfire Infusion', 'Bloodfire Kavu'],
+    );
+
+    test_query(
+        'format:',
+        'f:premodern termina',
+        ['Terminal Moraine', 'Terminate', 'Aphetto Exterminator'],
+    );
+
+    // Same as :
+    test_query(
+        'format=',
+        'format=premodern suppress',
+        ['Brutal Suppression', 'Suppress'],
     );
 
     if (executed === succeeded) {
