@@ -11,3 +11,7 @@ dev_server
 ```sh
 preprocess_cards
 ```
+
+## TODO
+
+- Add the custom cards from Caleb Ganon's Synergy cube.
