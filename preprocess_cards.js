@@ -27,41 +27,56 @@ for (const src_card of oracle_cards) {
         continue;
     }
 
-    const sfuri = src_card.scryfall_uri
-        .replace('https://scryfall.com/', '')
-        .replace(/\?utm_source=api$/, '');
+    try {
+        const sfuri = src_card.scryfall_uri
+            .replace('https://scryfall.com/', '')
+            .replace(/\?utm_source=api$/, '');
 
-    const formats = Object.entries(src_card.legalities)
-        .filter(([_, v]) => v !== 'not_legal' && v !== 'banned')
-        .map(([k]) => k);
+        const formats = Object.entries(src_card.legalities)
+            .filter(([_, v]) => v !== 'not_legal' && v !== 'banned')
+            .map(([k]) => k);
 
-    const dst_card = {
-        cmc: src_card.cmc,
-        rarities: new Set([src_card.rarity]),
-        sfuri,
-        formats,
-    };
+        const dst_card = {
+            cmc: src_card.cmc,
+            rarities: new Set([src_card.rarity]),
+            sfuri,
+            formats,
+            identity: src_card.color_identity.join(''),
+        };
 
-    process_card_img_uri(dst_card, src_card);
+        if ('colors' in src_card) {
+            dst_card.colors = src_card.colors.join('');
+        }
 
-    if ('card_faces' in src_card) {
-        dst_card.faces = src_card.card_faces.map(src_face => {
-            const dst_face = {};
-            process_card_img_uri(dst_face, src_face);
-            process_card_face(dst_face, src_face);
-            return dst_face;
-        });
-    } else {
-        process_card_face(dst_card, src_card);
-    }
+        process_card_img_uri(dst_card, src_card);
 
-    if (src_card.digital) {
-        id_to_digital_card.set(src_card.oracle_id, dst_card);
-    } else {
-        const idx = processed_cards.length;
-        processed_cards.push(dst_card);
-        id_to_card.set(src_card.oracle_id, dst_card);
-        card_to_idx.set(dst_card, idx);
+        if ('card_faces' in src_card) {
+            dst_card.faces = src_card.card_faces.map(src_face => {
+                const dst_face = {};
+                process_card_img_uri(dst_face, src_face);
+                process_card_face(dst_face, src_face);
+
+                if ('colors' in src_face) {
+                    dst_face.colors = src_face.colors.join('');
+                }
+
+                return dst_face;
+            });
+        } else {
+            process_card_face(dst_card, src_card);
+        }
+
+        if (src_card.digital) {
+            id_to_digital_card.set(src_card.oracle_id, dst_card);
+        } else {
+            const idx = processed_cards.length;
+            processed_cards.push(dst_card);
+            id_to_card.set(src_card.oracle_id, dst_card);
+            card_to_idx.set(dst_card, idx);
+        }
+    } catch (e) {
+        console.error(src_card.name, e);
+        throw e;
     }
 }
 

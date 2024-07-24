@@ -20,7 +20,9 @@ const TYPE_EVEN = 'even';
 const TYPE_ODD = 'odd';
 const TYPE_SUBSTRING = 'substring';
 
-const PROP_FORMATS = 'formats';
+const PROP_COLOR = 'colors'
+const PROP_FORMAT = 'format';
+const PROP_IDENTITY = 'identity';
 const PROP_MANA_COST = 'cost';
 const PROP_MANA_VALUE = 'cmc';
 const PROP_NAME = 'name';
@@ -363,7 +365,20 @@ function filter(logger) {
     logger.info('Filtering cards.');
     logger.time('filter');
 
-    const result = matching_cards(inputs[INPUT_QUERY_STRING], logger, () => Nop_Logger);
+    logger.time('filter_parse_query');
+    const user_query = parse_query(inputs[INPUT_QUERY_STRING]);
+    logger.time_end('filter_parse_query');
+
+    const query = create_conjunction_cond(user_query, POOLS[inputs.pool]);
+    logger.log('query string', inputs[INPUT_QUERY_STRING], 'user query', user_query, 'final query', query);
+
+    const result = find_cards_matching_query(
+        query,
+        inputs[INPUT_SORT_ORDER],
+        inputs[INPUT_SORT_ASC],
+        logger,
+        () => Nop_Logger,
+    );
 
     const frag = document.createDocumentFragment();
     let count = 0;
@@ -501,6 +516,16 @@ class Query_Parser {
             const [keyword, operator] = this.parse_keyword_and_operator();
 
             switch (keyword) {
+                case 'color':
+                case 'c':
+                    result = this.parse_color_or_id_cond(operator, TYPE_GE, PROP_COLOR);
+                    break;
+
+                case 'identity':
+                case 'id':
+                    result = this.parse_color_or_id_cond(operator, TYPE_LE, PROP_IDENTITY);
+                    break;
+
                 case 'format':
                 case 'f':
                     result = this.parse_format_cond(operator);
@@ -584,6 +609,149 @@ class Query_Parser {
         return [null, null];
     }
 
+    parse_color_or_id_cond(operator, colon_type, prop) {
+        const value_string = this.parse_word().toLocaleLowerCase('en');
+        let value = null;
+
+        switch (value_string) {
+            case 'colorless':
+            case 'c':
+                value = {};
+                break;
+            case 'white':
+                value = { [MANA_WHITE]: 1 };
+                break;
+            case 'blue':
+                value = { [MANA_BLUE]: 1 };
+                break;
+            case 'black':
+                value = { [MANA_BLACK]: 1 };
+                break;
+            case 'red':
+                value = { [MANA_RED]: 1 };
+                break;
+            case 'green':
+                value = { [MANA_GREEN]: 1 };
+                break;
+            case 'azorius':
+                value = { [MANA_WHITE]: 1, [MANA_BLUE]: 1 };
+                break;
+            case 'orzhov':
+            case 'silverquill':
+                value = { [MANA_WHITE]: 1, [MANA_BLACK]: 1 };
+                break;
+            case 'dimir':
+                value = { [MANA_BLUE]: 1, [MANA_BLACK]: 1 };
+                break;
+            case 'izzet':
+            case 'prismari':
+                value = { [MANA_BLUE]: 1, [MANA_RED]: 1 };
+                break;
+            case 'rakdos':
+                value = { [MANA_BLACK]: 1, [MANA_RED]: 1 };
+                break;
+            case 'golgari':
+            case 'witherbloom':
+                value = { [MANA_BLACK]: 1, [MANA_GREEN]: 1 };
+                break;
+            case 'gruul':
+                value = { [MANA_RED]: 1, [MANA_GREEN]: 1 };
+                break;
+            case 'boros':
+            case 'lorehold':
+                value = { [MANA_RED]: 1, [MANA_WHITE]: 1 };
+                break;
+            case 'selesnya':
+                value = { [MANA_GREEN]: 1, [MANA_WHITE]: 1 };
+                break;
+            case 'simic':
+            case 'quandrix':
+                value = { [MANA_GREEN]: 1, [MANA_BLUE]: 1 };
+                break;
+            case 'bant':
+                value = { [MANA_GREEN]: 1, [MANA_WHITE]: 1, [MANA_BLUE]: 1 };
+                break;
+            case 'esper':
+                value = { [MANA_WHITE]: 1, [MANA_BLUE]: 1, [MANA_BLACK]: 1 };
+                break;
+            case 'grixis':
+                value = { [MANA_BLUE]: 1, [MANA_BLACK]: 1, [MANA_RED]: 1 };
+                break;
+            case 'jund':
+                value = { [MANA_BLACK]: 1, [MANA_RED]: 1, [MANA_GREEN]: 1 };
+                break;
+            case 'naya':
+                value = { [MANA_RED]: 1, [MANA_GREEN]: 1, [MANA_WHITE]: 1 };
+                break;
+            case 'abzan':
+                value = { [MANA_WHITE]: 1, [MANA_BLACK]: 1, [MANA_GREEN]: 1 };
+                break;
+            case 'jeskai':
+                value = { [MANA_BLUE]: 1, [MANA_RED]: 1, [MANA_WHITE]: 1 };
+                break;
+            case 'sultai':
+                value = { [MANA_BLACK]: 1, [MANA_GREEN]: 1, [MANA_BLUE]: 1 };
+                break;
+            case 'mardu':
+                value = { [MANA_RED]: 1, [MANA_WHITE]: 1, [MANA_BLACK]: 1 };
+                break;
+            case 'temur':
+                value = { [MANA_GREEN]: 1, [MANA_BLUE]: 1, [MANA_RED]: 1 };
+                break;
+            case 'artifice':
+                value = { [MANA_WHITE]: 1, [MANA_BLUE]: 1, [MANA_BLACK]: 1, [MANA_RED]: 1 };
+                break;
+            case 'chaos':
+                value = { [MANA_BLUE]: 1, [MANA_BLACK]: 1, [MANA_RED]: 1, [MANA_GREEN]: 1 };
+                break;
+            case 'aggression':
+                value = { [MANA_BLACK]: 1, [MANA_RED]: 1, [MANA_GREEN]: 1, [MANA_WHITE]: 1 };
+                break;
+            case 'altruism':
+                value = { [MANA_RED]: 1, [MANA_GREEN]: 1, [MANA_WHITE]: 1, [MANA_BLUE]: 1 };
+                break;
+            case 'growth':
+                value = { [MANA_GREEN]: 1, [MANA_WHITE]: 1, [MANA_BLUE]: 1, [MANA_BLACK]: 1 };
+                break;
+
+            default: {
+                value = {};
+
+                for (const c of value_string) {
+                    switch (c) {
+                        case 'w':
+                            value[MANA_WHITE] = 1;
+                            break;
+                        case 'u':
+                            value[MANA_BLUE] = 1;
+                            break;
+                        case 'b':
+                            value[MANA_BLACK] = 1;
+                            break;
+                        case 'r':
+                            value[MANA_RED] = 1;
+                            break;
+                        case 'g':
+                            value[MANA_GREEN] = 1;
+                            break;
+                    }
+                }
+
+                if (Object.keys(value).length === 0) {
+                    return null;
+                }
+            }
+        }
+
+        assert(value !== null);
+
+        return {
+            type: this.operator_to_type(operator, colon_type),
+            prop,
+            value,
+        };
+    }
+
     parse_format_cond(operator) {
         if (operator !== ':' && operator !== '=') {
             return null;
@@ -593,7 +761,7 @@ class Query_Parser {
 
         return {
             type: TYPE_EQ,
-            prop: PROP_FORMATS,
+            prop: PROP_FORMAT,
             value,
         }
     }
@@ -1073,17 +1241,9 @@ function mana_cost_is_super_set(a, b, strict, logger) {
     }
 }
 
-function matching_cards(query_string, logger, card_logger) {
-    logger.time('matching_cards');
-
-    logger.time('matching_cards_parse_query');
-    const user_query = parse_query(query_string);
-    logger.time_end('matching_cards_parse_query');
-
-    const query = create_conjunction_cond(user_query, POOLS[inputs.pool]);
-    logger.log('query string', query_string, 'user query', user_query, 'final query', query);
-
-    logger.time('matching_cards_filter');
+function find_cards_matching_query(query, sort_order, sort_asc, logger, card_logger) {
+    logger.time('find_cards_matching_query');
+    logger.log('query', query);
     let result;
 
     if (static.sort_indices === null) {
@@ -1091,12 +1251,12 @@ function matching_cards(query_string, logger, card_logger) {
     } else {
         result = [];
         const len = static.cards.length;
-        const sort_index = SORT_ORDER_TO_INDEX[inputs[INPUT_SORT_ORDER]];
+        const sort_index = SORT_ORDER_TO_INDEX[sort_order];
         // View of a single sort index.
         const view = new DataView(static.sort_indices, sort_index * 2 * len, 2 * len);
 
         for (let i = 0; i < len; i++) {
-            const view_idx = 2 * (inputs[INPUT_SORT_ASC] ? i : (len - 1 - i));
+            const view_idx = 2 * (sort_asc ? i : (len - 1 - i));
             const idx = view.getUint16(view_idx, true);
             const card = static.cards[idx];
 
@@ -1106,16 +1266,18 @@ function matching_cards(query_string, logger, card_logger) {
         }
     }
 
-    logger.time_end('matching_cards_filter');
-
-    logger.time_end('matching_cards');
+    logger.time_end('find_cards_matching_query');
     return result;
 }
 
 function matches_query(card, query, logger) {
     logger.log(`evaluating query with "${card.name}"`, card);
 
-    return matches_condition(card, query, logger);
+    try {
+        return matches_condition(card, query, logger);
+    } catch (e) {
+        throw Error(`Couldn't evaluate query with "${card.name}".`, { cause: e });
+    }
 }
 
 /** Returns true if any face of the card matches the condition. */
@@ -1174,8 +1336,12 @@ function matches_comparison_condition(card, condition, logger) {
 
     logger.log('values', values);
 
-    if (condition.prop === PROP_MANA_COST) {
+    if (condition.prop === PROP_COLOR
+        || condition.prop === PROP_IDENTITY
+        || condition.prop === PROP_MANA_COST
+    ) {
         for (const value_str of values) {
+            // TODO: Do this at load time.
             const [value] = parse_mana_cost(value_str);
 
             let result;
@@ -1292,16 +1458,28 @@ function card_image_url(card) {
 
 /** Gets the value(s) of the given logical property of all faces of the given card. */
 function card_prop_values(card, prop) {
-    if (prop === PROP_RARITY) {
-        return card.rarities;
-    } else if (prop === PROP_FORMATS) {
-        return card.formats;
+    switch (prop) {
+        case PROP_FORMAT:
+            return card.formats;
+        case PROP_IDENTITY:
+            return [card.identity];
+        case PROP_RARITY:
+            return card.rarities;
     }
 
-    const props = [prop];
+    const props = [];
 
-    if (prop === PROP_NAME) {
-        props.push('flavor_name');
+    switch (prop) {
+        case PROP_COLOR:
+            props.push('colors');
+            break;
+        case PROP_NAME:
+            props.push(prop);
+            props.push('flavor_name');
+            break;
+        default:
+            props.push(prop);
+            break;
     }
 
     const values = [];
@@ -1405,18 +1583,56 @@ function run_test_suite() {
         }
     }
 
-    function test_query(name, query, expected_matches) {
-        test(`${name} (${query})`, logger => {
-            const expected = new Set(expected_matches);
-            const cards = matching_cards(query, Nop_Logger, () => Nop_Logger);
-            const actual = new Set(cards.map(c => c.name));
+    function test_query(name, query_string, expected_matches) {
+        const MAX_MATCHES = 20;
+        const expected = new Set(expected_matches);
+        assert(expected.size <= MAX_MATCHES);
 
-            if (!deep_eq(actual, expected) && actual.size <= 10) {
-                const log_set = actual.symmetricDifference(expected);
-                matching_cards(query, logger, c => (log_set.has(c.name) ? logger : Nop_Logger));
+        test(`${name} (${query_string})`, logger => {
+            const query = parse_query(query_string);
+            const result = find_cards_matching_query(
+                query,
+                PROP_NAME,
+                true,
+                Nop_Logger,
+                () => Nop_Logger,
+            );
+
+            const actual = new Set(result.map(c => c.name));
+
+            if (expected.size !== result.length || !deep_eq(actual, expected)) {
+                const missing_set = expected.difference(actual);
+                const unexpected_set = actual.difference(expected);
+                const log_set = new Set();
+
+                for (const c of missing_set) {
+                    log_set.add(c);
+
+                    // Ensure we log at most 10 cards.
+                    if (log_set.size >= 10) {
+                        break;
+                    }
+                }
+
+                for (const c of unexpected_set) {
+                    log_set.add(c);
+
+                    // Ensure we log at most 10 cards.
+                    if (log_set.size >= 10) {
+                        break;
+                    }
+                }
+
+                find_cards_matching_query(
+                    query,
+                    PROP_NAME,
+                    true,
+                    logger,
+                    c => (log_set.has(c.name) ? logger : Nop_Logger),
+                );
+
+                throw Error(`Expected to get ${expected.size} matches, got ${result.length}. Missing: ${to_string(missing_set)}, unexpected (showing max. 5): ${to_string([...unexpected_set].slice(0, 5))}.`);
             }
-
-            assert_eq(actual, expected);
         });
     }
 
@@ -1598,6 +1814,32 @@ function run_test_suite() {
         'format=',
         'format=premodern suppress',
         ['Brutal Suppression', 'Suppress'],
+    );
+
+    test_query(
+        'color=',
+        'color=gr gut',
+        ['Guttural Response', 'Raggadragga, Goreguts Boss'],
+    );
+
+    // Same as >=
+    test_query(
+        'color:',
+        'c:gr scrapper',
+        ['Scuzzback Scrapper'],
+    );
+
+    test_query(
+        'identity=',
+        'identity=gr glade',
+        ['Cinder Glade'],
+    );
+
+    // Same as <=
+    test_query(
+        'identity:',
+        'id:gr scrapper',
+        ['Elvish Scrapper', 'Scuzzback Scrapper', 'Khenra Scrapper', 'Gruul Scrapper', 'Scrapper Champion', 'Tuktuk Scrapper', 'Narstad Scrapper'],
     );
 
     if (executed === succeeded) {
