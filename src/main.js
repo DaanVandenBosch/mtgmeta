@@ -73,7 +73,7 @@ const POOLS = {
 
 const SORT_ORDER_TO_INDEX = Object.freeze({
     [PROP_MANA_VALUE]: 0,
-    [PROP_NAME]: 1,
+    [PROP_NAME]: null,
 });
 
 /** Static data that gets loaded once and then never changes. */
@@ -390,6 +390,7 @@ function filter(logger) {
         a.target = '_blank';
 
         const img = el('img');
+        img.loading = 'lazy';
         img.src = card_image_url(card);
         a.append(img);
 
@@ -1244,24 +1245,67 @@ function mana_cost_is_super_set(a, b, strict, logger) {
 function find_cards_matching_query(query, sort_order, sort_asc, logger, card_logger) {
     logger.time('find_cards_matching_query');
     logger.log('query', query);
-    let result;
 
-    if (static.sort_indices === null) {
-        result = static.cards.filter(card => matches_query(card, query, card_logger(card)));
-    } else {
-        result = [];
-        const len = static.cards.length;
-        const sort_index = SORT_ORDER_TO_INDEX[sort_order];
-        // View of a single sort index.
-        const view = new DataView(static.sort_indices, sort_index * 2 * len, 2 * len);
+    const sort_index = SORT_ORDER_TO_INDEX[sort_order];
+    const len = static.cards.length;
+    let index_view = null;
 
+    if (static.sort_indices !== null && sort_index !== null) {
+        const indices_view = new DataView(static.sort_indices);
+        const index_count = indices_view.getUint32(0, true);
+
+        if (sort_index >= index_count) {
+            logger.error(
+                `Sort index ${sort_index} for order ${sort_order} is invalid, there are ${index_count} indices.`
+            );
+        } else {
+            const index_offset = indices_view.getUint32(4 + 4 * sort_index, true);
+            const next_index_offset = (sort_index === index_count - 1)
+                ? indices_view.byteLength
+                : indices_view.getUint32(4 + 4 * (sort_index + 1), true);
+            index_view = new DataView(
+                static.sort_indices,
+                index_offset,
+                next_index_offset - index_offset,
+            );
+        }
+    }
+
+    const result = [];
+
+    if (index_view === null) {
         for (let i = 0; i < len; i++) {
-            const view_idx = 2 * (sort_asc ? i : (len - 1 - i));
-            const idx = view.getUint16(view_idx, true);
-            const card = static.cards[idx];
+            const card_idx = sort_asc ? i : (len - 1 - i);
+            const card = static.cards[card_idx];
 
             if (matches_query(card, query, card_logger(card))) {
                 result.push(card);
+            }
+        }
+    } else {
+        // Each index groups cards by some criterium. The sort direction determines the direction in
+        // which we traverse the groups, but not the direction in which we traverse the cards in
+        // each group. This ensures cards are always sorted by the given sort order and then by
+        // name.
+        const groups_table_len = index_view.getUint16(0, true);
+        const groups_table_offset = 2;
+        const groups_offset = groups_table_offset + 2 * groups_table_len;
+
+        for (let i = 0; i < groups_table_len; i++) {
+            const group_idx = sort_asc ? i : (groups_table_len - 1 - i);
+            const group_start = group_idx === 0
+                ? 0
+                : index_view.getUint16(groups_table_offset + 2 * (group_idx - 1), true);
+            const group_end = index_view.getUint16(groups_table_offset + 2 * group_idx, true);
+
+            for (let j = group_start; j < group_end; j++) {
+                const idx = groups_offset + 2 * j;
+                const card_idx = index_view.getUint16(idx, true);
+                const card = static.cards[card_idx];
+
+                if (matches_query(card, query, card_logger(card))) {
+                    result.push(card);
+                }
             }
         }
     }
