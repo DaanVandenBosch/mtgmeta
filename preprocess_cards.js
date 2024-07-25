@@ -12,7 +12,6 @@ const processed_cards = [];
 // ScryFall considers the most legible version (compare ).
 const id_to_digital_card = new Map;
 const id_to_card = new Map;
-const card_to_idx = new Map;
 
 // Process Scryfall "Oracle" cards.
 
@@ -69,10 +68,8 @@ for (const src_card of oracle_cards) {
         if (src_card.digital) {
             id_to_digital_card.set(src_card.oracle_id, dst_card);
         } else {
-            const idx = processed_cards.length;
             processed_cards.push(dst_card);
             id_to_card.set(src_card.oracle_id, dst_card);
-            card_to_idx.set(dst_card, idx);
         }
     } catch (e) {
         console.error(src_card.name, e);
@@ -103,10 +100,8 @@ for (const src_card of default_cards) {
         // The card is not just digital, add it to the list.
         id_to_digital_card.delete(id);
 
-        const idx = processed_cards.length;
         processed_cards.push(dst_card);
         id_to_card.set(src_card.oracle_id, dst_card);
-        card_to_idx.set(dst_card, idx);
     } else {
         dst_card = id_to_card.get(id);
     }
@@ -118,29 +113,13 @@ for (const src_card of default_cards) {
 
 // Generate sort indices.
 
-const sort_indices = new ArrayBuffer(2 * 2 * processed_cards.length);
+const sort_indices = new ArrayBuffer(4 * processed_cards.length);
 
-function name_compare(a, b) {
-    return full_card_name(a).localeCompare(full_card_name(b), 'en', { ignorePunctuation: true });
-}
+processed_cards.sort((a, b) =>
+    full_card_name(a).localeCompare(full_card_name(b), 'en', { ignorePunctuation: true })
+);
 
-add_sort_index(
-    sort_indices,
-    0,
-    processed_cards,
-    card_to_idx,
-    (a, b) => {
-        const order = a.cmc - b.cmc;
-        return order === 0 ? name_compare(a, b) : order;
-    },
-);
-add_sort_index(
-    sort_indices,
-    1,
-    processed_cards,
-    card_to_idx,
-    name_compare,
-);
+const sort_indices_len = generate_sort_indices(sort_indices, processed_cards);
 
 // Finally write our output files.
 
@@ -153,7 +132,7 @@ Deno.writeTextFileSync(
 );
 Deno.writeFileSync(
     'src/cards.idx',
-    new Uint8Array(sort_indices),
+    new Uint8Array(sort_indices, 0, sort_indices_len),
 );
 
 // Helper functions.
@@ -218,11 +197,54 @@ function full_card_name(card) {
     return card.name ?? (card.faces[0].name + ' // ' + card.faces[1].name);
 }
 
-function add_sort_index(buf, index_no, cards, card_to_idx, sort_fn) {
-    const view = new DataView(buf, index_no * 2 * cards.length, 2 * cards.length)
-    cards = [...cards].sort(sort_fn);
+function generate_sort_indices(buf, cards) {
+    const view = new DataView(buf);
+    const card_to_idx = new Map;
 
     for (let i = 0, len = cards.length; i < len; i++) {
-        view.setUint16(2 * i, card_to_idx.get(cards[i]), true);
+        const card = cards[i];
+        card_to_idx.set(card, i);
     }
+
+    // Pairs of grouping functions and group sorting functions.
+    const indices = [
+        [card => card.cmc, (a, b) => a - b],
+    ];
+
+    // File starts with index count and table of absolute offsets to indices.
+    view.setUint32(0, indices.length, true);
+    const index_table_offset = 4;
+    let pos = index_table_offset + 4 * indices.length;
+
+    for (let i = 0, len = indices.length; i < len; i++) {
+        // File starts with absolute offsets to indices.
+        view.setUint32(index_table_offset + 4 * i, pos, true);
+
+        const [group_fn, sort_fn] = indices[i];
+        const unsorted_groups = [...Map.groupBy(cards, group_fn)];
+        const groups = unsorted_groups.sort(([a], [b]) => sort_fn(a, b));
+
+        // Index starts with amount of groups.
+        view.setUint16(pos, groups.length, true);
+        pos += 2;
+
+        // The relative end index of each group. This is not an offset.
+        let group_end = 0;
+
+        for (const [_, cards] of groups) {
+            group_end += cards.length;
+            view.setUint16(pos, group_end, true);
+            pos += 2;
+        }
+
+        // Indices into the master card list per group.
+        for (const [_, cards] of groups) {
+            for (const card of cards) {
+                view.setUint16(pos, card_to_idx.get(card), true);
+                pos += 2;
+            }
+        }
+    }
+
+    return pos;
 }
