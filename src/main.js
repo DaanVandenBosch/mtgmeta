@@ -81,17 +81,20 @@ const INPUT_QUERY_STRING = 'query_string';
 const INPUT_POOL = 'pool';
 const INPUT_SORT_ORDER = 'sort_order';
 const INPUT_SORT_ASC = 'sort_asc';
+const INPUT_START_POS = 'start_index';
 
 const DEFAULT_QUERY_STRING = '';
 const DEFAULT_POOL = POOL_ALL;
 const DEFAULT_SORT_ORDER = PROP_NAME;
 const DEFAULT_SORT_ASC = true;
+const DEFAULT_START_POS = 1;
 
 const inputs = {
     [INPUT_QUERY_STRING]: DEFAULT_QUERY_STRING,
     [INPUT_POOL]: DEFAULT_POOL,
     [INPUT_SORT_ORDER]: DEFAULT_SORT_ORDER,
     [INPUT_SORT_ASC]: DEFAULT_SORT_ASC,
+    [INPUT_START_POS]: DEFAULT_START_POS,
 };
 
 /** All DOM elements that the user interacts with. */
@@ -102,6 +105,8 @@ const ui = {
     sort_dir_asc_el: null,
     sort_dir_desc_el: null,
     result_summary_el: null,
+    result_prev_el: null,
+    result_next_el: null,
     result_cards_el: null,
 };
 
@@ -121,6 +126,8 @@ async function init() {
     ui.sort_dir_asc_el = get_el('.sort_dir input[value=asc]');
     ui.sort_dir_desc_el = get_el('.sort_dir input[value=desc]');
     ui.result_summary_el = get_el('.result_summary');
+    ui.result_prev_el = get_el('.result_prev');
+    ui.result_next_el = get_el('.result_next');
     ui.result_cards_el = get_el('.cards');
 
     const params = get_params();
@@ -145,6 +152,10 @@ async function init() {
     ui.sort_order_el.onchange = e => set_inputs({ [INPUT_SORT_ORDER]: e.currentTarget.value });
     ui.sort_dir_asc_el.onchange = e => set_inputs({ [INPUT_SORT_ASC]: e.currentTarget.checked });
     ui.sort_dir_desc_el.onchange = e => set_inputs({ [INPUT_SORT_ASC]: !e.currentTarget.checked });
+    ui.result_prev_el.onclick = () =>
+        set_inputs({ [INPUT_START_POS]: inputs[INPUT_START_POS] - MAX_CARDS });
+    ui.result_next_el.onclick = () =>
+        set_inputs({ [INPUT_START_POS]: inputs[INPUT_START_POS] + MAX_CARDS });
 
     await load_cards(Console_Logger);
 
@@ -167,38 +178,51 @@ function set_inputs_from_params(params) {
 
     const pool = params.get('p');
 
-    if (!(pool in POOLS)) {
+    if (pool in POOLS) {
+        new_inputs[INPUT_POOL] = pool;
+    } else {
         if (pool !== null) {
             Console_Logger.error(`Invalid pool in URL: ${pool}`);
         }
 
         new_inputs[INPUT_POOL] = DEFAULT_POOL;
-    } else {
-        new_inputs[INPUT_POOL] = pool;
     }
 
     const sort_order = params.get('o');
 
-    if (!(sort_order in SORT_ORDER_TO_INDEX)) {
+    if (sort_order in SORT_ORDER_TO_INDEX) {
+        new_inputs[INPUT_SORT_ORDER] = sort_order;
+    } else {
         if (sort_order !== null) {
             Console_Logger.error(`Invalid sort order in URL: ${sort_order}`);
         }
 
         new_inputs[INPUT_SORT_ORDER] = DEFAULT_SORT_ORDER;
-    } else {
-        new_inputs[INPUT_SORT_ORDER] = sort_order;
     }
 
     const sort_dir = params.get('d');
 
-    if (sort_dir !== 'a' && sort_dir !== 'd') {
+    if (sort_dir === 'a' || sort_dir === 'd') {
+        new_inputs[INPUT_SORT_ASC] = sort_dir === 'a';
+    } else {
         if (sort_dir !== null) {
             Console_Logger.error(`Invalid sort direction in URL: ${sort_dir}`);
         }
 
         new_inputs[INPUT_SORT_ASC] = DEFAULT_SORT_ASC;
+    }
+
+    const start_pos_string = params.get('s');
+    const start_pos = parseInt(start_pos_string, 10);
+
+    if (start_pos >= 1) {
+        new_inputs[INPUT_START_POS] = start_pos;
     } else {
-        new_inputs[INPUT_SORT_ASC] = sort_dir === 'a';
+        if (start_pos_string !== null) {
+            Console_Logger.error(`Invalid start position in URL: ${start_pos_string}`);
+        }
+
+        new_inputs[INPUT_START_POS] = DEFAULT_START_POS;
     }
 
     set_inputs_internal(new_inputs, null, false);
@@ -206,6 +230,7 @@ function set_inputs_from_params(params) {
 
 function set_inputs_internal(new_inputs, params, update_url) {
     let any_changed = false;
+    let start_pos = null;
 
     for (const [k, v] of Object.entries(new_inputs)) {
         if (inputs[k] === v) {
@@ -245,6 +270,12 @@ function set_inputs_internal(new_inputs, params, update_url) {
                 (v ? ui.sort_dir_asc_el : ui.sort_dir_desc_el).checked = true;
                 break;
             }
+            case INPUT_START_POS: {
+                param = 's';
+                default_value = DEFAULT_START_POS;
+                param_value = v;
+                break;
+            }
             default:
                 throw Error(`Invalid input property ${k}.`);
         }
@@ -260,9 +291,29 @@ function set_inputs_internal(new_inputs, params, update_url) {
         }
 
         any_changed = true;
+
+        // If a start pos is given, set the start position. Otherwise, if any other input is
+        // changed, reset the start position.
+        if (k === INPUT_START_POS) {
+            start_pos = v;
+        } else if (start_pos === null) {
+            start_pos = DEFAULT_START_POS;
+        }
     }
 
     if (any_changed) {
+        if (start_pos !== null) {
+            inputs[INPUT_START_POS] = start_pos;
+
+            if (update_url) {
+                if (start_pos === DEFAULT_START_POS) {
+                    params.delete('s');
+                } else {
+                    params.set('s', start_pos);
+                }
+            }
+        }
+
         if (update_url) {
             const new_search = params.size ? `?${params}` : '';
 
@@ -376,9 +427,19 @@ function filter(logger) {
     );
 
     const frag = document.createDocumentFragment();
-    let count = 0;
+    let start_pos = inputs[INPUT_START_POS];
+    let start_idx = start_pos - 1;
 
-    for (const card of result) {
+    if (start_idx >= result.length && result.length > 0) {
+        start_idx = Math.floor((result.length - 1) / MAX_CARDS) * MAX_CARDS;
+        start_pos = start_idx + 1;
+        inputs[INPUT_START_POS] = start_pos;
+    }
+
+    const view_result = result.slice(start_idx, start_idx + MAX_CARDS);
+    const end_pos = start_idx + view_result.length;
+
+    for (const card of view_result) {
         const a = el('a');
         a.className = 'card';
         a.href = card_scryfall_url(card);
@@ -390,16 +451,32 @@ function filter(logger) {
         a.append(img);
 
         frag.append(a);
-
-        if (++count >= MAX_CARDS) {
-            break;
-        }
     }
 
-    ui.result_summary_el.innerHTML = `Showing ${count} of ${result.length} matching cards.`;
+    let summary_text;
+
+    if (static.cards.length === 0) {
+        // Try to avoid showing "Loading..." when the user opens the app, as it makes you think you
+        // can't filter cards yet.
+        if (inputs[INPUT_QUERY_STRING] === '' && ui.result_summary_el.innerHTML === '') {
+            summary_text = '';
+        } else {
+            summary_text = 'Loading...';
+        }
+    } else if (result.length === 0) {
+        summary_text = 'No matches.'
+    } else {
+        summary_text = `Showing ${start_pos}-${end_pos} of ${result.length} matches.`;
+    }
+
+    ui.result_summary_el.innerHTML = summary_text;
 
     ui.result_cards_el.innerHTML = '';
+    ui.result_cards_el.scroll(0, 0);
     ui.result_cards_el.append(frag);
+
+    ui.result_prev_el.disabled = static.cards.length === 0 || start_pos === 1;
+    ui.result_next_el.disabled = start_pos >= result.length - MAX_CARDS + 1;
 
     logger.time_end('filter');
 }
@@ -968,7 +1045,7 @@ function parse_mana_symbol(input, start) {
 
     if (initial_match !== null) {
         const symbol_or_generic = initial_match[0].toLocaleUpperCase('en');
-        let generic = parseInt(symbol_or_generic);
+        let generic = parseInt(symbol_or_generic, 10);
 
         if (isNaN(generic)) {
             generic = null;
@@ -997,7 +1074,7 @@ function parse_mana_symbol(input, start) {
 
         pos += match[0].length;
         const symbol_or_generic = match[0].toLocaleUpperCase('en');
-        let generic = parseInt(symbol_or_generic);
+        let generic = parseInt(symbol_or_generic, 10);
 
         if (isNaN(generic)) {
             generic = null;
@@ -1285,6 +1362,7 @@ function find_cards_matching_query(query, sort_order, sort_asc, logger, card_log
         const groups_table_len = index_view.getUint16(0, true);
         const groups_table_offset = 2;
         const groups_offset = groups_table_offset + 2 * groups_table_len;
+        let invalid_idx_count = 0;
 
         for (let i = 0; i < groups_table_len; i++) {
             const group_idx = sort_asc ? i : (groups_table_len - 1 - i);
@@ -1296,12 +1374,24 @@ function find_cards_matching_query(query, sort_order, sort_asc, logger, card_log
             for (let j = group_start; j < group_end; j++) {
                 const idx = groups_offset + 2 * j;
                 const card_idx = index_view.getUint16(idx, true);
+
+                if (card_idx >= static.cards.length) {
+                    invalid_idx_count++;
+                    continue;
+                }
+
                 const card = static.cards[card_idx];
 
                 if (matches_query(card, query, card_logger(card))) {
                     result.push(card);
                 }
             }
+        }
+
+        if (invalid_idx_count > 0) {
+            logger.error(
+                `Sort index ${sort_index} for order ${sort_order} contains ${invalid_idx_count} card indexes.`
+            );
         }
     }
 

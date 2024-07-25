@@ -70,6 +70,20 @@ select:focus {
     outline-style: solid;
 }
 
+button {
+    background-color: rgb(87, 65, 65);
+    color: var(--light);
+    padding: 2px 4px;
+    border: solid 2px var(--light);
+    border-radius: 5px;
+    font-size: 13px;
+}
+
+button:disabled {
+    color: rgb(175, 162, 162);
+    border-color: rgb(175, 162, 162);
+}
+
 .sort_dir {
     display: flex;
     flex-direction: column;
@@ -105,10 +119,20 @@ select:focus {
     border: none;
 }
 
-.result_summary {
+.result_nav {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    min-width: 500px;
+    padding: 0 2px;
     color: rgb(209, 200, 200);
     font-size: 0.9em;
-    padding: 0 2px;
+}
+
+.result_summary,
+.result_dummy {
+    flex: 1;
 }
 
 .result {

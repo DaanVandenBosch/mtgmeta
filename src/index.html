@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 
 <head>
+    <meta charset="utf-8" />
     <script src="main.js" async></script>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" href="data:,">
@@ -11,7 +12,7 @@
 <body>
     <header>
         <div class="filter_container">
-            <input class="query" autocomplete="off" autofocus>
+            <input class="query" autofocus autocomplete="off">
             from
             <select class="pool" autocomplete="off">
                 <option value="all">All cards</option>
@@ -25,14 +26,21 @@
             </select>
             <div class="sort_dir">
                 <label>
-                    <input type="radio" name="sort_dir" value="asc" checked autocomplete="off">Asc
+                    <input type="radio" name="sort_dir" value="asc" autocomplete="off" checked>Asc
                 </label>
                 <label>
                     <input type="radio" name="sort_dir" value="desc" autocomplete="off">Desc
                 </label>
             </div>
         </div>
-        <div class="result_summary"></div>
+        <div class="result_nav">
+            <div class="result_summary"></div>
+            <div>
+                <button class="result_prev" disabled>🞀 Previous</button>
+                <button class="result_next" disabled>Next 100 🞂</button>
+            </div>
+            <div class="result_dummy"></div>
+        </div>
     </header>
     <div class="result" tabindex="-1">
         <div class="cards" tabindex="-1"></div>
