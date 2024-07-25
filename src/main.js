@@ -1,9 +1,3 @@
-if (document.body) {
-    init();
-} else {
-    window.addEventListener('DOMContentLoaded', init);
-}
-
 const MAX_CARDS = 100;
 
 const TYPE_TRUE = 'true';
@@ -344,8 +338,10 @@ async function load_cards(logger) {
     logger.time('load_cards');
 
     logger.time('load_cards_fetch');
-    static.cards = await (await fetch('cards.json')).json();
-    logger.time_end('load_cards_fetch');
+    const cards_response = fetch('cards.json');
+    const indices_response = fetch('cards.idx');
+
+    static.cards = await (await cards_response).json();
 
     for (const card of static.cards) {
         if (card.name === undefined) {
@@ -353,9 +349,8 @@ async function load_cards(logger) {
         }
     }
 
-    logger.time('load_cards_fetch_indices');
-    static.sort_indices = await (await fetch('cards.idx')).arrayBuffer();
-    logger.time_end('load_cards_fetch_indices');
+    static.sort_indices = await (await indices_response).arrayBuffer();
+    logger.time_end('load_cards_fetch');
 
     filter(logger);
     logger.time_end('load_cards');
@@ -1894,4 +1889,10 @@ function run_test_suite() {
     }
 
     Console_Logger.time_end('run_test_suite');
+}
+
+if (document.body) {
+    init();
+} else {
+    window.addEventListener('DOMContentLoaded', init);
 }
