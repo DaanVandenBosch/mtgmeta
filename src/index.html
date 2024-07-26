@@ -5,8 +5,8 @@
     <script src="main.js" async></script>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" href="data:,">
-    <link rel="preload" href="cards.json" as="fetch">
-    <link rel="preload" href="cards.idx" as="fetch">
+    <link rel="preload" href="cards.json" as="fetch" crossorigin>
+    <link rel="preload" href="cards.idx" as="fetch" crossorigin>
 </head>
 
 <body>
@@ -35,9 +35,11 @@
         </div>
         <div class="result_nav">
             <div class="result_summary"></div>
-            <div>
+            <div class="result_buttons">
+                <button class="result_first" disabled>⏮</button>
                 <button class="result_prev" disabled>🞀 Previous</button>
-                <button class="result_next" disabled>Next 100 🞂</button>
+                <button class="result_next" disabled>Next 120 🞂</button>
+                <button class="result_last" disabled>⏭</button>
             </div>
             <div class="result_dummy"></div>
         </div>
