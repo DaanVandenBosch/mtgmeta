@@ -1,4 +1,4 @@
-const MAX_CARDS = 100;
+const MAX_CARDS = 120;
 
 const TYPE_TRUE = 'true';
 const TYPE_OR = 'or';
@@ -107,8 +107,13 @@ const ui = {
     result_summary_el: null,
     result_prev_el: null,
     result_next_el: null,
+    result_first_el: null,
+    result_last_el: null,
     result_cards_el: null,
 };
+
+/** Output. */
+let result = null;
 
 async function init() {
     Console_Logger.time('init');
@@ -128,7 +133,10 @@ async function init() {
     ui.result_summary_el = get_el('.result_summary');
     ui.result_prev_el = get_el('.result_prev');
     ui.result_next_el = get_el('.result_next');
+    ui.result_first_el = get_el('.result_first');
+    ui.result_last_el = get_el('.result_last');
     ui.result_cards_el = get_el('.cards');
+    Object.freeze(ui);
 
     const params = get_params();
     set_inputs_from_params(params);
@@ -156,6 +164,14 @@ async function init() {
         set_inputs({ [INPUT_START_POS]: inputs[INPUT_START_POS] - MAX_CARDS });
     ui.result_next_el.onclick = () =>
         set_inputs({ [INPUT_START_POS]: inputs[INPUT_START_POS] + MAX_CARDS });
+    ui.result_first_el.onclick = () =>
+        set_inputs({ [INPUT_START_POS]: 1 });
+    ui.result_last_el.onclick = () => {
+        const start_pos = result === null
+            ? 1
+            : (Math.floor(result.length / MAX_CARDS) * MAX_CARDS + 1);
+        set_inputs({ [INPUT_START_POS]: start_pos });
+    }
 
     await load_cards(Console_Logger);
 
@@ -418,7 +434,7 @@ function filter(logger) {
     const query = create_conjunction_cond(user_query, POOLS[inputs.pool]);
     logger.log('query string', inputs[INPUT_QUERY_STRING], 'user query', user_query, 'final query', query);
 
-    const result = find_cards_matching_query(
+    result = find_cards_matching_query(
         query,
         inputs[INPUT_SORT_ORDER],
         inputs[INPUT_SORT_ASC],
@@ -436,7 +452,7 @@ function filter(logger) {
         inputs[INPUT_START_POS] = start_pos;
     }
 
-    const view_result = result.slice(start_idx, start_idx + MAX_CARDS);
+    const view_result = result.cards.slice(start_idx, start_idx + MAX_CARDS);
     const end_pos = start_idx + view_result.length;
 
     for (const card of view_result) {
@@ -475,8 +491,12 @@ function filter(logger) {
     ui.result_cards_el.scroll(0, 0);
     ui.result_cards_el.append(frag);
 
-    ui.result_prev_el.disabled = static.cards.length === 0 || start_pos === 1;
-    ui.result_next_el.disabled = start_pos >= result.length - MAX_CARDS + 1;
+    const at_first_page = static.cards.length === 0 || start_pos === 1;
+    const at_last_page = start_pos >= result.length - MAX_CARDS + 1
+    ui.result_prev_el.disabled = at_first_page;
+    ui.result_next_el.disabled = at_last_page;
+    ui.result_first_el.disabled = at_first_page;
+    ui.result_last_el.disabled = at_last_page;
 
     logger.time_end('filter');
 }
@@ -1396,7 +1416,11 @@ function find_cards_matching_query(query, sort_order, sort_asc, logger, card_log
     }
 
     logger.time_end('find_cards_matching_query');
-    return result;
+
+    return {
+        cards: result,
+        length: result.length,
+    };
 }
 
 function matches_query(card, query, logger) {
