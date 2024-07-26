@@ -27,7 +27,7 @@ for (const src_card of oracle_cards) {
     }
 
     try {
-        const sfuri = src_card.scryfall_uri
+        const sfurl = src_card.scryfall_uri
             .replace('https://scryfall.com/', '')
             .replace(/\?utm_source=api$/, '');
 
@@ -36,33 +36,36 @@ for (const src_card of oracle_cards) {
             .map(([k]) => k);
 
         const dst_card = {
+            // Card properties.
             cmc: src_card.cmc,
-            rarities: new Set([src_card.rarity]),
-            sfuri,
             formats,
             identity: src_card.color_identity.join(''),
+            rarities: new Set([src_card.rarity]),
+            sfurl,
+
+            // Card XOR face properties.
+            cost: [],
+            name: [],
+            oracle: [],
+            type: [],
+
+            // Card AND face properties.
+            colors: ['colors' in src_card ? src_card.colors.join('') : null],
+            img: [process_card_img_uri(src_card)],
         };
 
-        if ('colors' in src_card) {
-            dst_card.colors = src_card.colors.join('');
+        for (const src_face of src_card.card_faces ?? [src_card]) {
+            dst_card.cost.push(src_face.mana_cost);
+            dst_card.name.push(src_face.name);
+            dst_card.oracle.push(src_face.oracle_text);
+            dst_card.type.push(src_face.type_line);
         }
 
-        process_card_img_uri(dst_card, src_card);
-
-        if ('card_faces' in src_card) {
-            dst_card.faces = src_card.card_faces.map(src_face => {
-                const dst_face = {};
-                process_card_img_uri(dst_face, src_face);
-                process_card_face(dst_face, src_face);
-
-                if ('colors' in src_face) {
-                    dst_face.colors = src_face.colors.join('');
-                }
-
-                return dst_face;
-            });
-        } else {
-            process_card_face(dst_card, src_card);
+        if (src_card.card_faces) {
+            for (const src_face of src_card.card_faces) {
+                dst_card.colors.push('colors' in src_face ? src_face.colors.join('') : null);
+                dst_card.img.push(process_card_img_uri(src_face));
+            }
         }
 
         if (src_card.digital) {
@@ -123,13 +126,30 @@ const sort_indices_len = generate_sort_indices(sort_indices, processed_cards);
 
 // Finally write our output files.
 
-Deno.writeTextFileSync(
-    'src/cards.json',
-    JSON.stringify(
-        processed_cards,
-        (_key, value) => (value instanceof Set ? [...value] : value),
-    ),
-);
+for (const prop of [
+    'colors',
+    'cost',
+    'cmc',
+    'face_colors',
+    'face_img',
+    'formats',
+    'identity',
+    'img',
+    'name',
+    'oracle',
+    'rarities',
+    'sfurl',
+    'type',
+]) {
+    Deno.writeTextFileSync(
+        `src/card_${prop}.json`,
+        JSON.stringify(
+            processed_cards.map(c => c[prop]),
+            (_key, value) => (value instanceof Set ? [...value] : value),
+        ),
+    );
+}
+
 Deno.writeFileSync(
     'src/cards.idx',
     new Uint8Array(sort_indices, 0, sort_indices_len),
@@ -176,25 +196,12 @@ async function get_card_data(sf_bulk_info, type) {
     throw Error(`Couldn't find bulk data URI for type ${type}.`);
 }
 
-function process_card_img_uri(dst, src) {
-    if ('image_uris' in src) {
-        dst.img = src.image_uris.normal.replace('https://cards.scryfall.io/normal/', '');
-    }
-}
-
-function process_card_face(dst, src) {
-    dst.name = src.name;
-    dst.type = src.type_line;
-    dst.cost = src.mana_cost;
-    dst.oracle = src.oracle_text;
-
-    if (src.flavor_name) {
-        dst.flavor_name = src.flavor_name;
-    }
+function process_card_img_uri(src) {
+    return src.image_uris?.normal?.replace('https://cards.scryfall.io/normal/', '') ?? null;
 }
 
 function full_card_name(card) {
-    return card.name ?? (card.faces[0].name + ' // ' + card.faces[1].name);
+    return card.name.length === 1 ? card.name[0] : (card.name[0] + ' // ' + card.name[1]);
 }
 
 function generate_sort_indices(buf, cards) {

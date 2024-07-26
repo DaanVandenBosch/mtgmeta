@@ -14,14 +14,14 @@ const TYPE_EVEN = 'even';
 const TYPE_ODD = 'odd';
 const TYPE_SUBSTRING = 'substring';
 
-const PROP_COLOR = 'colors'
-const PROP_FORMAT = 'format';
+const PROP_COLOR = 'colors';
+const PROP_FORMAT = 'formats';
 const PROP_IDENTITY = 'identity';
 const PROP_MANA_COST = 'cost';
 const PROP_MANA_VALUE = 'cmc';
 const PROP_NAME = 'name';
 const PROP_ORACLE_TEXT = 'oracle';
-const PROP_RARITY = 'rarity';
+const PROP_RARITY = 'rarities';
 const PROP_TYPE = 'type';
 const PROPS = Object.freeze([
     PROP_MANA_COST, PROP_MANA_VALUE, PROP_NAME, PROP_ORACLE_TEXT, PROP_RARITY, PROP_TYPE
@@ -72,8 +72,69 @@ const SORT_ORDER_TO_INDEX = Object.freeze({
 
 /** Static data that gets loaded once and then never changes. */
 const static = {
-    cards: [],
+    cards: {
+        length: null,
+        props: new Map,
+        load_promises: new Map,
+
+        async load(prop) {
+            let promise = this.load_promises.get(prop);
+
+            if (promise === undefined) {
+                promise = fetch(`card_${prop}.json`).then(async response => {
+                    const data = await response.json();
+                    this.props.set(prop, data);
+                    this.length = this.length === null
+                        ? data.length
+                        : Math.min(this.length, data.length);
+                });
+
+                this.load_promises.set(prop, promise);
+            }
+
+            return promise;
+        },
+
+        get(idx, prop) {
+            return this.props.get(prop)?.at(idx) ?? null;
+        },
+
+        scryfall_url(idx) {
+            const sfurl = this.props.get('sfurl')?.at(idx);
+
+            if (sfurl == null) {
+                return null;
+            }
+
+            return `https://scryfall.com/${sfurl}`
+        },
+
+        image_url(idx) {
+            const img = this.props.get('img')?.at(idx)?.find(i => i !== null);
+
+            if (img == null) {
+                return null;
+            }
+
+            return `https://cards.scryfall.io/normal/${img}`;
+        },
+    },
     sort_indices: null,
+    sort_indices_load_promise: null,
+
+    async load_sort_indices() {
+        let promise = this.sort_indices_load_promise;
+
+        if (promise === null) {
+            promise = fetch('cards.idx').then(async response => {
+                this.sort_indices = await response.arrayBuffer();
+            });
+
+            this.sort_indices_load_promise = promise;
+        }
+
+        return promise;
+    }
 };
 
 /** User input. */
@@ -97,6 +158,9 @@ const inputs = {
     [INPUT_START_POS]: DEFAULT_START_POS,
 };
 
+/** Output. */
+let result = null;
+
 /** All DOM elements that the user interacts with. */
 const ui = {
     query_el: null,
@@ -111,9 +175,6 @@ const ui = {
     result_last_el: null,
     result_cards_el: null,
 };
-
-/** Output. */
-let result = null;
 
 async function init() {
     Console_Logger.time('init');
@@ -138,10 +199,7 @@ async function init() {
     ui.result_cards_el = get_el('.cards');
     Object.freeze(ui);
 
-    const params = get_params();
-    set_inputs_from_params(params);
-
-    window.onpopstate = () => set_inputs_from_params(get_params());
+    window.onpopstate = () => set_inputs_from_params(get_params(), false);
 
     document.onkeydown = e => {
         if (e.key === 'f' && document.activeElement !== ui.query_el) {
@@ -173,7 +231,8 @@ async function init() {
         set_inputs({ [INPUT_START_POS]: start_pos });
     }
 
-    await load_cards(Console_Logger);
+    const params = get_params();
+    await set_inputs_from_params(params, true);
 
     Console_Logger.time_end('init');
 
@@ -182,12 +241,12 @@ async function init() {
     }
 }
 
-function set_inputs(new_inputs) {
+async function set_inputs(new_inputs) {
     const params = get_params();
-    set_inputs_internal(new_inputs, params, true);
+    await set_inputs_internal(new_inputs, params, true, false);
 }
 
-function set_inputs_from_params(params) {
+async function set_inputs_from_params(params, force_filter) {
     const new_inputs = {};
 
     new_inputs[INPUT_QUERY_STRING] = params.get('q') ?? DEFAULT_QUERY_STRING;
@@ -241,10 +300,10 @@ function set_inputs_from_params(params) {
         new_inputs[INPUT_START_POS] = DEFAULT_START_POS;
     }
 
-    set_inputs_internal(new_inputs, null, false);
+    await set_inputs_internal(new_inputs, null, false, force_filter);
 }
 
-function set_inputs_internal(new_inputs, params, update_url) {
+async function set_inputs_internal(new_inputs, params, update_url, force_filter) {
     let any_changed = false;
     let start_pos = null;
 
@@ -337,8 +396,10 @@ function set_inputs_internal(new_inputs, params, update_url) {
                 window.history.pushState(null, null, `/${new_search}`);
             }
         }
+    }
 
-        filter(Console_Logger);
+    if (any_changed || force_filter) {
+        await filter(Console_Logger);
     }
 }
 
@@ -401,40 +462,19 @@ class Mem_Logger {
     }
 }
 
-async function load_cards(logger) {
-    logger.time('load_cards');
-
-    logger.time('load_cards_fetch');
-    const cards_response = fetch('cards.json');
-    const indices_response = fetch('cards.idx');
-
-    static.cards = await (await cards_response).json();
-
-    for (const card of static.cards) {
-        if (card.name === undefined) {
-            card.name = (card.faces[0].name + ' // ' + card.faces[1].name);
-        }
-    }
-
-    static.sort_indices = await (await indices_response).arrayBuffer();
-    logger.time_end('load_cards_fetch');
-
-    filter(logger);
-    logger.time_end('load_cards');
-}
-
-function filter(logger) {
+async function filter(logger) {
     logger.info('Filtering cards.');
     logger.time('filter');
-
     logger.time('filter_parse_query');
+
     const user_query = parse_query(inputs[INPUT_QUERY_STRING]);
+
     logger.time_end('filter_parse_query');
 
-    const query = create_conjunction_cond(user_query, POOLS[inputs.pool]);
+    const query = combine_queries_with_conjunction(user_query, POOLS[inputs.pool]);
     logger.log('query string', inputs[INPUT_QUERY_STRING], 'user query', user_query, 'final query', query);
 
-    result = find_cards_matching_query(
+    result = await find_cards_matching_query(
         query,
         inputs[INPUT_SORT_ORDER],
         inputs[INPUT_SORT_ASC],
@@ -455,15 +495,15 @@ function filter(logger) {
     const view_result = result.cards.slice(start_idx, start_idx + MAX_CARDS);
     const end_pos = start_idx + view_result.length;
 
-    for (const card of view_result) {
+    for (const card_idx of view_result) {
         const a = el('a');
         a.className = 'card';
-        a.href = card_scryfall_url(card);
+        a.href = static.cards.scryfall_url(card_idx) ?? '';
         a.target = '_blank';
 
         const img = el('img');
         img.loading = 'lazy';
-        img.src = card_image_url(card);
+        img.src = static.cards.image_url(card_idx) ?? '';
         a.append(img);
 
         frag.append(a);
@@ -471,7 +511,7 @@ function filter(logger) {
 
     let summary_text;
 
-    if (static.cards.length === 0) {
+    if (static.cards.length === null) {
         // Try to avoid showing "Loading..." when the user opens the app, as it makes you think you
         // can't filter cards yet.
         if (inputs[INPUT_QUERY_STRING] === '' && ui.result_summary_el.innerHTML === '') {
@@ -491,7 +531,7 @@ function filter(logger) {
     ui.result_cards_el.scroll(0, 0);
     ui.result_cards_el.append(frag);
 
-    const at_first_page = static.cards.length === 0 || start_pos === 1;
+    const at_first_page = static.cards.length === null || start_pos === 1;
     const at_last_page = start_pos >= result.length - MAX_CARDS + 1
     ui.result_prev_el.disabled = at_first_page;
     ui.result_next_el.disabled = at_last_page;
@@ -501,38 +541,49 @@ function filter(logger) {
     logger.time_end('filter');
 }
 
-function create_conjunction_cond(...args) {
+function combine_queries_with_conjunction(...args) {
     assert(args.length >= 1);
 
+    const props = new Set();
     const conditions = [];
 
-    for (const arg of args) {
-        switch (arg.type) {
+    for (const query of args) {
+        switch (query.condition.type) {
             case TYPE_TRUE:
                 // Has no effect on conjunction.
-                break;
+                continue;
             case TYPE_AND:
-                conditions.push(...arg.conditions);
+                conditions.push(...query.condition.conditions);
                 break;
             default:
-                conditions.push(arg);
+                conditions.push(query.condition);
                 break;
+        }
+
+        for (const prop of query.props) {
+            props.add(prop);
         }
     }
 
     if (conditions.length === 0) {
         // All were true.
-        assert_eq(args[0].type, TYPE_TRUE);
+        assert_eq(args[0].condition.type, TYPE_TRUE);
         return args[0];
     }
 
     if (conditions.length === 1) {
-        return args[0];
+        return {
+            props: [...props],
+            condition: conditions[0],
+        };
     }
 
     return {
-        type: TYPE_AND,
-        conditions,
+        props: [...props],
+        condition: {
+            type: TYPE_AND,
+            conditions,
+        }
     };
 }
 
@@ -544,7 +595,12 @@ class Query_Parser {
     parse(query_string) {
         this.query_string = query_string;
         this.pos = 0;
-        return this.parse_conjunction();
+        this.props = new Set();
+        const condition = this.parse_conjunction();
+        return {
+            props: [...this.props],
+            condition,
+        };
     }
 
     chars_left() {
@@ -838,11 +894,11 @@ class Query_Parser {
 
         assert(value !== null);
 
-        return {
-            type: this.operator_to_type(operator, colon_type),
+        return this.prop_cond(
+            this.operator_to_type(operator, colon_type),
             prop,
             value,
-        };
+        );
     }
 
     parse_format_cond(operator) {
@@ -852,11 +908,11 @@ class Query_Parser {
 
         const value = this.parse_string().toLocaleLowerCase('en');
 
-        return {
-            type: TYPE_EQ,
-            prop: PROP_FORMAT,
+        return this.prop_cond(
+            TYPE_EQ,
+            PROP_FORMAT,
             value,
-        }
+        );
     }
 
     parse_mana_cost_cond(operator) {
@@ -868,11 +924,11 @@ class Query_Parser {
 
         this.pos += len;
 
-        return {
-            type: this.operator_to_type(operator, TYPE_GE),
-            prop: PROP_MANA_COST,
-            value: symbols,
-        };
+        return this.prop_cond(
+            this.operator_to_type(operator, TYPE_GE),
+            PROP_MANA_COST,
+            symbols,
+        );
     }
 
     parse_mana_value_cond(operator) {
@@ -880,17 +936,17 @@ class Query_Parser {
 
         if (operator === ':' || operator === '=') {
             if (value_string === 'even') {
-                return {
-                    type: TYPE_EVEN,
-                    prop: PROP_MANA_VALUE,
-                };
+                return this.prop_cond(
+                    TYPE_EVEN,
+                    PROP_MANA_VALUE,
+                );
             }
 
             if (value_string === 'odd') {
-                return {
-                    type: TYPE_ODD,
-                    prop: PROP_MANA_VALUE,
-                };
+                return this.prop_cond(
+                    TYPE_ODD,
+                    PROP_MANA_VALUE,
+                );
             }
         }
 
@@ -900,21 +956,21 @@ class Query_Parser {
             return null;
         }
 
-        return {
-            type: this.operator_to_type(operator, TYPE_EQ),
-            prop: PROP_MANA_VALUE,
+        return this.prop_cond(
+            this.operator_to_type(operator, TYPE_EQ),
+            PROP_MANA_VALUE,
             value,
-        };
+        );
     }
 
     parse_name_cond() {
         const value = this.parse_string().toLocaleLowerCase('en');
 
-        return {
-            type: TYPE_SUBSTRING,
-            prop: PROP_NAME,
+        return this.prop_cond(
+            TYPE_SUBSTRING,
+            PROP_NAME,
             value,
-        };
+        );
     }
 
     parse_oracle_cond(operator) {
@@ -924,11 +980,11 @@ class Query_Parser {
 
         const value = this.parse_string().toLocaleLowerCase('en');
 
-        return {
-            type: TYPE_SUBSTRING,
-            prop: PROP_ORACLE_TEXT,
+        return this.prop_cond(
+            TYPE_SUBSTRING,
+            PROP_ORACLE_TEXT,
             value,
-        }
+        );
     }
 
     parse_rarity_cond(operator) {
@@ -962,11 +1018,11 @@ class Query_Parser {
                 break;
         }
 
-        return {
-            type: this.operator_to_type(operator, TYPE_EQ),
-            prop: PROP_RARITY,
+        return this.prop_cond(
+            this.operator_to_type(operator, TYPE_EQ),
+            PROP_RARITY,
             value,
-        };
+        );
     }
 
     parse_type_cond(operator) {
@@ -980,11 +1036,11 @@ class Query_Parser {
             return null;
         }
 
-        return {
-            type: TYPE_SUBSTRING,
-            prop: PROP_TYPE,
-            value: value.toLocaleLowerCase('en'),
-        };
+        return this.prop_cond(
+            TYPE_SUBSTRING,
+            PROP_TYPE,
+            value.toLocaleLowerCase('en'),
+        );
     }
 
     parse_string() {
@@ -1035,6 +1091,20 @@ class Query_Parser {
             default:
                 throw Error(`Unknown operator "${operator}".`);
         }
+    }
+
+    prop_cond(type, prop, value) {
+        const cond = {
+            type,
+            prop,
+        };
+
+        if (value !== undefined) {
+            cond.value = value;
+        }
+
+        this.props.add(prop);
+        return cond;
     }
 }
 
@@ -1334,15 +1404,37 @@ function mana_cost_is_super_set(a, b, strict, logger) {
     }
 }
 
-function find_cards_matching_query(query, sort_order, sort_asc, logger, card_logger) {
+async function find_cards_matching_query(query, sort_order, sort_asc, logger, card_logger) {
     logger.time('find_cards_matching_query');
     logger.log('query', query);
+    logger.time('find_cards_matching_query_load');
 
     const sort_index = SORT_ORDER_TO_INDEX[sort_order];
-    const len = static.cards.length;
+
+    // Fire off data loads.
+    const props_required = [...query.props, 'sfurl', 'img'];
+    const promises = []
+
+    for (const prop of props_required) {
+        promises.push(static.cards.load(prop));
+    }
+
+    if (sort_index !== null) {
+        promises.push(static.load_sort_indices());
+    }
+
+    // Await data loads.
+    // TODO: Show loading message while waiting.
+    for (const promise of promises) {
+        await promise;
+    }
+
+    logger.time_end('find_cards_matching_query_load');
+
+    const len = static.cards.length ?? 0;
     let index_view = null;
 
-    if (static.sort_indices !== null && sort_index !== null) {
+    if (sort_index !== null) {
         const indices_view = new DataView(static.sort_indices);
         const index_count = indices_view.getUint32(0, true);
 
@@ -1368,10 +1460,9 @@ function find_cards_matching_query(query, sort_order, sort_asc, logger, card_log
     if (index_view === null) {
         for (let i = 0; i < len; i++) {
             const card_idx = sort_asc ? i : (len - 1 - i);
-            const card = static.cards[card_idx];
 
-            if (matches_query(card, query, card_logger(card))) {
-                result.push(card);
+            if (matches_query(card_idx, query, card_logger(card_idx))) {
+                result.push(card_idx);
             }
         }
     } else {
@@ -1395,15 +1486,13 @@ function find_cards_matching_query(query, sort_order, sort_asc, logger, card_log
                 const idx = groups_offset + 2 * j;
                 const card_idx = index_view.getUint16(idx, true);
 
-                if (card_idx >= static.cards.length) {
+                if (card_idx >= len) {
                     invalid_idx_count++;
                     continue;
                 }
 
-                const card = static.cards[card_idx];
-
-                if (matches_query(card, query, card_logger(card))) {
-                    result.push(card);
+                if (matches_query(card_idx, query, card_logger(card_idx))) {
+                    result.push(card_idx);
                 }
             }
         }
@@ -1423,18 +1512,19 @@ function find_cards_matching_query(query, sort_order, sort_asc, logger, card_log
     };
 }
 
-function matches_query(card, query, logger) {
-    logger.log(`evaluating query with "${card.name}"`, card);
+function matches_query(card_idx, query, logger) {
+    const name = static.cards.get(card_idx, PROP_NAME);
+    logger.log(`evaluating query with "${name}"`, card_idx);
 
     try {
-        return matches_condition(card, query, logger);
+        return matches_condition(card_idx, query.condition, logger);
     } catch (e) {
-        throw Error(`Couldn't evaluate query with "${card.name}".`, { cause: e });
+        throw Error(`Couldn't evaluate query with "${name}".`, { cause: e });
     }
 }
 
 /** Returns true if any face of the card matches the condition. */
-function matches_condition(card, condition, logger) {
+function matches_condition(card_idx, condition, logger) {
     logger.group(condition.type, condition);
 
     let result;
@@ -1445,10 +1535,10 @@ function matches_condition(card, condition, logger) {
             break;
         }
         case TYPE_OR: {
-            result = condition.conditions.length === 0;
+            result = false;
 
             for (const cond of condition.conditions) {
-                if (matches_condition(card, cond, logger)) {
+                if (matches_condition(card_idx, cond, logger)) {
                     result = true;
                     break;
                 }
@@ -1457,10 +1547,10 @@ function matches_condition(card, condition, logger) {
             break;
         }
         case TYPE_AND: {
-            result = condition.conditions.length > 0;
+            result = true;
 
             for (const cond of condition.conditions) {
-                if (!matches_condition(card, cond, logger)) {
+                if (!matches_condition(card_idx, cond, logger)) {
                     result = false;
                     break;
                 }
@@ -1469,11 +1559,11 @@ function matches_condition(card, condition, logger) {
             break;
         }
         case TYPE_NOT: {
-            result = !matches_condition(card, condition.condition, logger);
+            result = !matches_condition(card_idx, condition.condition, logger);
             break;
         }
         default: {
-            result = matches_comparison_condition(card, condition, logger);
+            result = matches_comparison_condition(card_idx, condition, logger);
             break;
         }
     }
@@ -1484,8 +1574,12 @@ function matches_condition(card, condition, logger) {
     return result;
 }
 
-function matches_comparison_condition(card, condition, logger) {
-    const values = card_prop_values(card, condition.prop);
+function matches_comparison_condition(card_idx, condition, logger) {
+    let values = static.cards.get(card_idx, condition.prop);
+
+    if (!Array.isArray(values)) {
+        values = [values];
+    }
 
     logger.log('values', values);
 
@@ -1493,7 +1587,16 @@ function matches_comparison_condition(card, condition, logger) {
         || condition.prop === PROP_IDENTITY
         || condition.prop === PROP_MANA_COST
     ) {
-        for (const value_str of values) {
+        for (let i = 0, len = values.length; i < len; i++) {
+            const value_str = values[i];
+
+            // Ignore non-existent values. Also ignore empty mana costs of the backside of transform
+            // cards.
+            if (value_str === null
+                || (i >= 1 && condition.prop === PROP_MANA_COST && value_str === '')) {
+                continue;
+            }
+
             // TODO: Do this at load time.
             const [value] = parse_mana_cost(value_str);
 
@@ -1584,100 +1687,6 @@ function matches_comparison_condition(card, condition, logger) {
     return false;
 }
 
-function card_scryfall_url(card) {
-    return `https://scryfall.com/${card.sfuri}`
-}
-
-function card_image_url(card) {
-    let img = null;
-
-    if (card.img) {
-        img = card.img;
-    } else if (card.faces) {
-        for (const face of card.faces) {
-            if (face.img) {
-                img = face.img;
-                break;
-            }
-        }
-    }
-
-    if (img == null) {
-        return null;
-    }
-
-    return `https://cards.scryfall.io/normal/${img}`;
-}
-
-/** Gets the value(s) of the given logical property of all faces of the given card. */
-function card_prop_values(card, prop) {
-    switch (prop) {
-        case PROP_FORMAT:
-            return card.formats;
-        case PROP_IDENTITY:
-            return [card.identity];
-        case PROP_RARITY:
-            return card.rarities;
-    }
-
-    const props = [];
-
-    switch (prop) {
-        case PROP_COLOR:
-            props.push('colors');
-            break;
-        case PROP_NAME:
-            props.push(prop);
-            props.push('flavor_name');
-            break;
-        default:
-            props.push(prop);
-            break;
-    }
-
-    const values = [];
-
-    if (card.faces) {
-        for (let i = 0, len = card.faces.length; i < len; i++) {
-            const face = card.faces[i];
-
-            for (const prop of props) {
-                const value = face[prop];
-
-                // Ignore non-existent values. Also ignore empty mana costs of the backside of
-                // transform cards.
-                if (value === undefined
-                    || (i >= 1 && prop === PROP_MANA_COST && value.length === 0)
-                ) {
-                    continue;
-                }
-
-                values.push(value);
-            }
-        }
-    }
-
-    if (values.length) {
-        return values;
-    }
-
-    for (const prop of props) {
-        const value = card[prop];
-
-        if (value === undefined) {
-            if (prop === 'flavor_name') {
-                continue;
-            }
-
-            throw Error(`No property "${prop}" in the given card's faces or the card itself.`);
-        }
-
-        values.push(value);
-    }
-
-    return values;
-}
-
 function get_el(query) {
     const element = document.querySelector(query);
 
@@ -1710,30 +1719,13 @@ function to_string(object) {
     });
 }
 
-function run_test_suite() {
+async function run_test_suite() {
     Console_Logger.time('run_test_suite');
-    let executed = 0;
-    let succeeded = 0;
 
-    function test(name, f) {
-        const logger = new Mem_Logger;
-        let e = null;
+    const tests = [];
 
-        try {
-            f(logger);
-            succeeded++;
-        } catch (ex) {
-            e = ex;
-        }
-
-        executed++;
-
-        if (e) {
-            logger.log_to(Console_Logger);
-            Console_Logger.error('FAILURE', name, e);
-        } else {
-            Console_Logger.info('SUCCESS', name);
-        }
+    function test(name, execute) {
+        tests.push({ name, execute });
     }
 
     function test_query(name, query_string, expected_matches) {
@@ -1741,9 +1733,9 @@ function run_test_suite() {
         const expected = new Set(expected_matches);
         assert(expected.size <= MAX_MATCHES);
 
-        test(`${name} (${query_string})`, logger => {
+        test(`${name} (${query_string})`, async logger => {
             const query = parse_query(query_string);
-            const result = find_cards_matching_query(
+            const result = await find_cards_matching_query(
                 query,
                 PROP_NAME,
                 true,
@@ -1776,7 +1768,7 @@ function run_test_suite() {
                     }
                 }
 
-                find_cards_matching_query(
+                await find_cards_matching_query(
                     query,
                     PROP_NAME,
                     true,
@@ -2000,6 +1992,35 @@ function run_test_suite() {
     } else {
         Console_Logger.info(`Ran ${executed} tests, ${executed - succeeded} failed.`);
         alert('Tests failed!');
+    }
+
+    let executed = 0;
+    let succeeded = 0;
+
+    for (const test of tests) {
+        const logger = new Mem_Logger;
+        let e = null;
+
+        try {
+            const result = test.execute(logger);
+
+            if (result instanceof Promise) {
+                await result;
+            }
+
+            succeeded++;
+        } catch (ex) {
+            e = ex;
+        }
+
+        executed++;
+
+        if (e) {
+            logger.log_to(Console_Logger);
+            Console_Logger.error('FAILURE', test.name, e);
+        } else {
+            Console_Logger.info('SUCCESS', test.name);
+        }
     }
 
     Console_Logger.time_end('run_test_suite');
