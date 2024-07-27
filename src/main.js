@@ -99,18 +99,32 @@ const static = {
             return this.props.get(prop)?.at(idx) ?? null;
         },
 
-        scryfall_url(idx) {
-            const sfurl = this.props.get('sfurl')?.at(idx);
+        name(idx) {
+            const names = this.get(idx, PROP_NAME);
 
-            if (sfurl == null) {
+            if (names === null || names.length == 0) {
                 return null;
             }
 
-            return `https://scryfall.com/${sfurl}`
+            if (names.length >= 2) {
+                return names[0] + ' // ' + names[1];
+            }
+
+            return names[0];
+        },
+
+        scryfall_url(idx) {
+            const sfurl = this.get(idx, 'sfurl');
+
+            if (sfurl === null) {
+                return null;
+            }
+
+            return `https://scryfall.com/${sfurl}`;
         },
 
         image_url(idx) {
-            const img = this.props.get('img')?.at(idx)?.find(i => i !== null);
+            const img = this.get(idx, 'img')?.find(i => i !== null);
 
             if (img == null) {
                 return null;
@@ -1748,7 +1762,7 @@ async function run_test_suite() {
                 () => Nop_Logger,
             );
 
-            const actual = new Set(result.map(c => c.name));
+            const actual = new Set(result.cards.map(idx => static.cards.name(idx)));
 
             if (expected.size !== result.length || !deep_eq(actual, expected)) {
                 const missing_set = expected.difference(actual);
@@ -1778,7 +1792,7 @@ async function run_test_suite() {
                     PROP_NAME,
                     true,
                     logger,
-                    c => (log_set.has(c.name) ? logger : Nop_Logger),
+                    idx => (log_set.has(static.cards.name(idx)) ? logger : Nop_Logger),
                 );
 
                 throw Error(`Expected to get ${expected.size} matches, got ${result.length}. Missing: ${to_string(missing_set)}, unexpected (showing max. 5): ${to_string([...unexpected_set].slice(0, 5))}.`);
@@ -1992,13 +2006,6 @@ async function run_test_suite() {
         ['Elvish Scrapper', 'Scuzzback Scrapper', 'Khenra Scrapper', 'Gruul Scrapper', 'Scrapper Champion', 'Tuktuk Scrapper', 'Narstad Scrapper'],
     );
 
-    if (executed === succeeded) {
-        Console_Logger.info(`Ran ${executed} tests, all succeeded.`);
-    } else {
-        Console_Logger.info(`Ran ${executed} tests, ${executed - succeeded} failed.`);
-        alert('Tests failed!');
-    }
-
     let executed = 0;
     let succeeded = 0;
 
@@ -2026,6 +2033,13 @@ async function run_test_suite() {
         } else {
             Console_Logger.info('SUCCESS', test.name);
         }
+    }
+
+    if (executed === succeeded) {
+        Console_Logger.info(`Ran ${executed} tests, all succeeded.`);
+    } else {
+        Console_Logger.info(`Ran ${executed} tests, ${executed - succeeded} failed.`);
+        alert('Tests failed!');
     }
 
     Console_Logger.time_end('run_test_suite');
