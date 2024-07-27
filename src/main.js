@@ -202,7 +202,10 @@ async function init() {
     window.onpopstate = () => set_inputs_from_params(get_params(), false);
 
     document.onkeydown = e => {
-        if (e.key === 'f' && document.activeElement !== ui.query_el) {
+        if (e.key === 'f'
+            && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey
+            && document.activeElement !== ui.query_el
+        ) {
             e.preventDefault();
             ui.query_el.focus();
         }
@@ -517,6 +520,8 @@ async function filter(logger) {
         if (inputs[INPUT_QUERY_STRING] === '' && ui.result_summary_el.innerHTML === '') {
             summary_text = '';
         } else {
+            // TODO: Setting this to "Loading..." is here is pointless, because we wait until data
+            // is loaded.
             summary_text = 'Loading...';
         }
     } else if (result.length === 0) {

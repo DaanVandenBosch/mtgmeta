@@ -1,0 +1,5 @@
+<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/">
+    <ShortName>MTG Search</ShortName>
+    <InputEncoding>UTF-8</InputEncoding>
+    <Url type="text/html" template="https://mtg.daanvandenbosch.com/?q={searchTerms}" />
+</OpenSearchDescription>

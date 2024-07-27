@@ -7,12 +7,16 @@
     <link rel="icon" href="data:,">
     <link rel="preload" href="card_sfurl.json" as="fetch" crossorigin>
     <link rel="preload" href="card_img.json" as="fetch" crossorigin>
+    <link rel="preconnect" href="https://cards.scryfall.io" crossorigin>
+    <link rel="search" type="application/opensearchdescription+xml" title="MTG Search"
+        href="open_search.xml">
+
 </head>
 
 <body>
     <header>
         <div class="filter_container">
-            <input class="query" autofocus autocomplete="off">
+            <input type="search" class="query" autofocus autocomplete="off">
             from
             <select class="pool" autocomplete="off">
                 <option value="all">All cards</option>
