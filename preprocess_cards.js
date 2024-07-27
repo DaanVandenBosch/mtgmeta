@@ -27,6 +27,12 @@ for (const src_card of oracle_cards) {
     }
 
     try {
+        for (const prop of ['colors', 'image_uris']) {
+            if (prop in src_card && src_card.card_faces?.some(f => prop in f)) {
+                throw Error(`${prop} in both card and faces.`);
+            }
+        }
+
         const sfurl = src_card.scryfall_uri
             .replace('https://scryfall.com/', '')
             .replace(/\?utm_source=api$/, '');
@@ -43,17 +49,17 @@ for (const src_card of oracle_cards) {
             rarities: new Set([src_card.rarity]),
             sfurl,
 
-            // Card XOR face properties.
+            // Card or face properties. I.e. either one or two values per card.
+            colors: [],
             cost: [],
+            img: [],
             name: [],
             oracle: [],
             type: [],
-
-            // Card AND face properties.
-            colors: ['colors' in src_card ? src_card.colors.join('') : null],
-            img: [process_card_img_uri(src_card)],
         };
 
+        // Properties that will be on the face if there are faces, and on the card if there are no
+        // faces.
         for (const src_face of src_card.card_faces ?? [src_card]) {
             dst_card.cost.push(src_face.mana_cost);
             dst_card.name.push(src_face.name);
@@ -61,10 +67,16 @@ for (const src_card of oracle_cards) {
             dst_card.type.push(src_face.type_line);
         }
 
-        if (src_card.card_faces) {
-            for (const src_face of src_card.card_faces) {
-                dst_card.colors.push('colors' in src_face ? src_face.colors.join('') : null);
-                dst_card.img.push(process_card_img_uri(src_face));
+        // Properties that could be on the card even though there are faces.
+        for (const src of [src_card, ...(src_card.card_faces ?? [])]) {
+            if ('colors' in src) {
+                dst_card.colors.push(src.colors.join(''));
+            }
+
+            if ('image_uris' in src) {
+                dst_card.img.push(
+                    src.image_uris.normal.replace('https://cards.scryfall.io/normal/', ''),
+                );
             }
         }
 
@@ -130,8 +142,6 @@ for (const prop of [
     'colors',
     'cost',
     'cmc',
-    'face_colors',
-    'face_img',
     'formats',
     'identity',
     'img',
@@ -194,10 +204,6 @@ async function get_card_data(sf_bulk_info, type) {
     }
 
     throw Error(`Couldn't find bulk data URI for type ${type}.`);
-}
-
-function process_card_img_uri(src) {
-    return src.image_uris?.normal?.replace('https://cards.scryfall.io/normal/', '') ?? null;
 }
 
 function full_card_name(card) {

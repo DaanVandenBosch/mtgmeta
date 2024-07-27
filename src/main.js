@@ -83,10 +83,31 @@ const static = {
             if (promise === undefined) {
                 promise = fetch(`card_${prop}.json`).then(async response => {
                     const data = await response.json();
+
+                    if (prop === PROP_COLOR || prop === PROP_MANA_COST) {
+                        for (const faces of data) {
+                            for (let i = 0, len = faces.length; i < len; i++) {
+                                const value_str = faces[i];
+
+                                // Ignore non-existent values. Also ignore empty mana costs of the
+                                // backside of transform cards.
+                                if (value_str === null
+                                    || (i >= 1 && prop === PROP_MANA_COST && value_str === '')
+                                ) {
+                                    faces[i] = null;
+                                } else {
+                                    faces[i] = parse_mana_cost(value_str)[0];
+                                }
+                            }
+                        }
+                    } else if (prop === PROP_IDENTITY) {
+                        for (let i = 0, len = data.length; i < len; i++) {
+                            data[i] = parse_mana_cost(data[i])[0];
+                        }
+                    }
+
                     this.props.set(prop, data);
-                    this.length = this.length === null
-                        ? data.length
-                        : Math.min(this.length, data.length);
+                    this.length = data.length;
                 });
 
                 this.load_promises.set(prop, promise);
@@ -107,6 +128,7 @@ const static = {
             }
 
             if (names.length >= 2) {
+                assert_eq(names.length, 2);
                 return names[0] + ' // ' + names[1];
             }
 
@@ -124,7 +146,7 @@ const static = {
         },
 
         image_url(idx) {
-            const img = this.get(idx, 'img')?.find(i => i !== null);
+            const img = this.get(idx, 'img')?.at(0);
 
             if (img == null) {
                 return null;
@@ -482,6 +504,16 @@ class Mem_Logger {
 async function filter(logger) {
     logger.info('Filtering cards.');
     logger.time('filter');
+
+    // Try to avoid showing "Loading..." when the user opens the app, as it makes you think you
+    // can't filter cards yet.
+    if (static.cards.length === null
+        && inputs[INPUT_QUERY_STRING] !== ''
+        && ui.result_summary_el.innerHTML === ''
+    ) {
+        ui.result_summary_el.innerHTML = 'Loading...';
+    }
+
     logger.time('filter_parse_query');
 
     const user_query = parse_query(inputs[INPUT_QUERY_STRING]);
@@ -526,25 +558,10 @@ async function filter(logger) {
         frag.append(a);
     }
 
-    let summary_text;
-
-    if (static.cards.length === null) {
-        // Try to avoid showing "Loading..." when the user opens the app, as it makes you think you
-        // can't filter cards yet.
-        if (inputs[INPUT_QUERY_STRING] === '' && ui.result_summary_el.innerHTML === '') {
-            summary_text = '';
-        } else {
-            // TODO: Setting this to "Loading..." is here is pointless, because we wait until data
-            // is loaded.
-            summary_text = 'Loading...';
-        }
-    } else if (result.length === 0) {
-        summary_text = 'No matches.'
-    } else {
-        summary_text = `Showing ${start_pos}-${end_pos} of ${result.length} matches.`;
-    }
-
-    ui.result_summary_el.innerHTML = summary_text;
+    // TODO: Don't overwrite "Loading..." if another query has been fired off that requires a load.
+    ui.result_summary_el.innerHTML = result.length === 0
+        ? 'No matches.'
+        : `Showing ${start_pos}-${end_pos} of ${result.length} matches.`;
 
     ui.result_cards_el.innerHTML = '';
     ui.result_cards_el.scroll(0, 0);
@@ -1431,26 +1448,36 @@ async function find_cards_matching_query(query, sort_order, sort_asc, logger, ca
     const sort_index = SORT_ORDER_TO_INDEX[sort_order];
 
     // Fire off data loads.
-    const props_required = [...query.props, 'sfurl', 'img'];
-    const promises = []
+    const required_for_query_promises = [];
+    const required_for_display_promises = [];
 
-    for (const prop of props_required) {
-        promises.push(static.cards.load(prop));
+    for (const prop of query.props) {
+        required_for_query_promises.push(static.cards.load(prop));
     }
 
     if (sort_index !== null) {
-        promises.push(static.load_sort_indices());
+        required_for_query_promises.push(static.load_sort_indices());
     }
 
-    // Await data loads.
-    // TODO: Show loading message while waiting.
-    for (const promise of promises) {
+    for (const prop of ['sfurl', 'img']) {
+        required_for_display_promises.push(static.cards.load(prop));
+    }
+
+    // Await data loads necessary for query.
+    for (const promise of required_for_query_promises) {
         await promise;
     }
 
-    logger.time_end('find_cards_matching_query_load');
+    // Await the smallest display property if we have no necessary properties to wait for, just to
+    // get the amount of cards.
+    if (required_for_query_promises.length === 0) {
+        await required_for_display_promises[0];
+    }
 
-    const len = static.cards.length ?? 0;
+    logger.time_end('find_cards_matching_query_load');
+    logger.time('find_cards_matching_query_execute');
+
+    const len = static.cards.length;
     let index_view = null;
 
     if (sort_index !== null) {
@@ -1523,6 +1550,15 @@ async function find_cards_matching_query(query, sort_order, sort_asc, logger, ca
         }
     }
 
+    logger.time_end('find_cards_matching_query_execute');
+    logger.time('find_cards_matching_query_load_display');
+
+    // Await data loads necessary for display.
+    for (const promise of required_for_display_promises) {
+        await promise;
+    }
+
+    logger.time_end('find_cards_matching_query_load_display');
     logger.time_end('find_cards_matching_query');
 
     return {
@@ -1606,18 +1642,11 @@ function matches_comparison_condition(card_idx, condition, logger) {
         || condition.prop === PROP_IDENTITY
         || condition.prop === PROP_MANA_COST
     ) {
-        for (let i = 0, len = values.length; i < len; i++) {
-            const value_str = values[i];
-
-            // Ignore non-existent values. Also ignore empty mana costs of the backside of transform
-            // cards.
-            if (value_str === null
-                || (i >= 1 && condition.prop === PROP_MANA_COST && value_str === '')) {
+        for (const value of values) {
+            // Ignore non-existent values.
+            if (value === null) {
                 continue;
             }
-
-            // TODO: Do this at load time.
-            const [value] = parse_mana_cost(value_str);
 
             let result;
 
@@ -1663,6 +1692,11 @@ function matches_comparison_condition(card_idx, condition, logger) {
         }
 
         for (const value of values) {
+            // Ignore non-existent values.
+            if (value === null) {
+                continue;
+            }
+
             let result;
 
             switch (condition.type) {
