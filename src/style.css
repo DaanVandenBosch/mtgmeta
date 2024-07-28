@@ -20,6 +20,50 @@ body {
     color: var(--dark);
 }
 
+select {
+    background-color: var(--very-dark);
+    color: var(--light);
+    height: 32px;
+    padding: 5px 10px;
+    border: none;
+    border-radius: 5px;
+    font-size: 15px;
+}
+
+button {
+    background-color: rgb(116, 88, 88);
+    color: var(--light);
+    padding: 3px 8px;
+    border: none;
+    /* border: solid 2px var(--light); */
+    border-radius: 3px;
+    font-size: 13px;
+}
+
+button:disabled {
+    background-color: rgb(80, 66, 66);
+    color: rgb(175, 162, 162);
+    border-color: rgb(175, 162, 162);
+}
+
+button:enabled:hover {
+    background-color: rgb(146, 110, 110);
+}
+
+input[type=search]:hover,
+select:hover {
+    outline-color: rgb(92, 70, 70);
+    outline-width: 2px;
+    outline-style: solid;
+}
+
+input[type=search]:focus,
+select:focus,
+button:focus {
+    outline-color: var(--light);
+    outline-style: solid;
+}
+
 header {
     display: flex;
     flex-direction: column;
@@ -41,47 +85,13 @@ header {
     flex: 1;
     box-sizing: border-box;
     height: 32px;
-    padding: 5px 10px;
+    padding: 5px 8px;
     border: none;
     background-color: var(--very-dark);
     color: var(--light);
     border-radius: 5px;
     font-family: 'Trebuchet MS', sans-serif;
     font-size: 18px;
-}
-
-.query:focus {
-    outline-style: solid;
-}
-
-select {
-    background-color: var(--very-dark);
-    color: var(--light);
-    height: 32px;
-    padding: 5px 10px;
-    border: none;
-    border-radius: 5px;
-    font-size: 15px;
-}
-
-select:focus {
-    outline-color: var(--light);
-    outline-width: 2px;
-    outline-style: solid;
-}
-
-button {
-    background-color: rgb(87, 65, 65);
-    color: var(--light);
-    padding: 2px 5px;
-    border: solid 2px var(--light);
-    border-radius: 5px;
-    font-size: 13px;
-}
-
-button:disabled {
-    color: rgb(175, 162, 162);
-    border-color: rgb(175, 162, 162);
 }
 
 .sort_dir {
@@ -91,6 +101,7 @@ button:disabled {
 }
 
 .sort_dir>label {
+    user-select: none;
     position: relative;
     background-color: var(--very-dark);
     color: var(--light);
@@ -100,11 +111,15 @@ button:disabled {
     font-size: 13px;
 }
 
+.sort_dir>label:hover {
+    background-color: rgb(94, 68, 68);
+}
+
 .sort_dir>label:focus-within {
+    border-color: var(--very-dark);
     outline-color: var(--light);
     outline-width: 2px;
     outline-style: solid;
-    border-color: var(--very-dark);
 }
 
 .sort_dir>label:has(input[type=radio]:checked) {
