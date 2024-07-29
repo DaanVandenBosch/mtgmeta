@@ -20,12 +20,13 @@ const PROP_IDENTITY = 'identity';
 const PROP_MANA_COST = 'cost';
 const PROP_MANA_VALUE = 'cmc';
 const PROP_NAME = 'name';
+const PROP_NAME_SEARCH = 'name_search';
+const PROP_NAME_INEXACT = 'name_inexact';
 const PROP_ORACLE_TEXT = 'oracle';
+const PROP_ORACLE_TEXT_SEARCH = 'oracle_search';
 const PROP_RARITY = 'rarities';
 const PROP_TYPE = 'type';
-const PROPS = Object.freeze([
-    PROP_MANA_COST, PROP_MANA_VALUE, PROP_NAME, PROP_ORACLE_TEXT, PROP_RARITY, PROP_TYPE
-]);
+const PROP_TYPE_SEARCH = 'type_search';
 
 const MANA_WHITE = 'W';
 const MANA_BLUE = 'U';
@@ -70,6 +71,8 @@ const SORT_ORDER_TO_INDEX = Object.freeze({
     [PROP_NAME]: null,
 });
 
+const INEXACT_REGEX = /[.,:;/\\'" \t]+/g;
+
 /** Static data that gets loaded once and then never changes. */
 const static = {
     cards: {
@@ -78,31 +81,86 @@ const static = {
         load_promises: new Map,
 
         async load(prop) {
+            switch (prop) {
+                case PROP_NAME_SEARCH:
+                case PROP_NAME_INEXACT:
+                    prop = PROP_NAME;
+                    break;
+
+                case PROP_ORACLE_TEXT_SEARCH:
+                    prop = PROP_ORACLE_TEXT;
+                    break;
+
+                case PROP_TYPE_SEARCH:
+                    prop = PROP_TYPE;
+                    break;
+            }
+
             let promise = this.load_promises.get(prop);
 
             if (promise === undefined) {
                 promise = fetch(`card_${prop}.json`).then(async response => {
                     const data = await response.json();
 
-                    if (prop === PROP_COLOR || prop === PROP_MANA_COST) {
-                        for (const faces of data) {
-                            for (let i = 0, len = faces.length; i < len; i++) {
-                                const value_str = faces[i];
+                    switch (prop) {
+                        case PROP_COLOR:
+                        case PROP_MANA_COST: {
+                            for (const faces of data) {
+                                for (let i = 0, len = faces.length; i < len; i++) {
+                                    const value_str = faces[i];
 
-                                // Ignore non-existent values. Also ignore empty mana costs of the
-                                // backside of transform cards.
-                                if (value_str === null
-                                    || (i >= 1 && prop === PROP_MANA_COST && value_str === '')
-                                ) {
-                                    faces[i] = null;
-                                } else {
-                                    faces[i] = parse_mana_cost(value_str)[0];
+                                    // Ignore non-existent values. Also ignore empty mana costs of the
+                                    // backside of transform cards.
+                                    if (value_str === null
+                                        || (i >= 1 && prop === PROP_MANA_COST && value_str === '')
+                                    ) {
+                                        faces[i] = null;
+                                    } else {
+                                        faces[i] = parse_mana_cost(value_str)[0];
+                                    }
                                 }
                             }
+
+                            break;
                         }
-                    } else if (prop === PROP_IDENTITY) {
-                        for (let i = 0, len = data.length; i < len; i++) {
-                            data[i] = parse_mana_cost(data[i])[0];
+
+                        case PROP_IDENTITY: {
+                            for (let i = 0, len = data.length; i < len; i++) {
+                                data[i] = parse_mana_cost(data[i])[0];
+                            }
+
+                            break;
+                        }
+
+                        case PROP_NAME: {
+                            const search_data = [];
+                            const inexact_data = [];
+
+                            for (const values of data) {
+                                search_data.push(
+                                    values
+                                        .join(' // ')
+                                        .toLocaleLowerCase('en')
+                                );
+                                inexact_data.push(
+                                    values
+                                        .join('')
+                                        .replace(INEXACT_REGEX, '')
+                                        .toLocaleLowerCase('en')
+                                );
+                            }
+
+                            this.props.set(PROP_NAME_SEARCH, search_data);
+                            this.props.set(PROP_NAME_INEXACT, inexact_data);
+                            break;
+                        }
+
+                        case PROP_ORACLE_TEXT:
+                        case PROP_TYPE: {
+                            const search_data =
+                                data.map(values => values.map(v => v.toLocaleLowerCase('en')));
+                            this.props.set(prop + '_search', search_data);
+                            break;
                         }
                     }
 
@@ -127,12 +185,7 @@ const static = {
                 return null;
             }
 
-            if (names.length >= 2) {
-                assert_eq(names.length, 2);
-                return names[0] + ' // ' + names[1];
-            }
-
-            return names[0];
+            return names.join(' // ');
         },
 
         scryfall_url(idx) {
@@ -671,7 +724,11 @@ class Query_Parser {
                 continue;
             }
 
-            conditions.push(this.parse_condition());
+            const condition = this.parse_condition();
+
+            if (condition !== null) {
+                conditions.push(condition);
+            }
         }
 
         if (conditions.length === 0) {
@@ -729,6 +786,8 @@ class Query_Parser {
 
                 case 'oracle':
                 case 'o':
+                case 'fulloracle':
+                case 'fo':
                     result = this.parse_oracle_cond(operator);
                     break;
 
@@ -942,7 +1001,7 @@ class Query_Parser {
             return null;
         }
 
-        const value = this.parse_string().toLocaleLowerCase('en');
+        const value = this.parse_word().toLocaleLowerCase('en');
 
         return this.prop_cond(
             TYPE_EQ,
@@ -1000,13 +1059,46 @@ class Query_Parser {
     }
 
     parse_name_cond() {
-        const value = this.parse_string().toLocaleLowerCase('en');
+        const [value, quoted] = this.parse_string();
+        const value_lc = value.toLocaleLowerCase('en');
 
-        return this.prop_cond(
-            TYPE_SUBSTRING,
-            PROP_NAME,
-            value,
-        );
+        if (quoted) {
+            return this.prop_cond(
+                TYPE_SUBSTRING,
+                PROP_NAME_SEARCH,
+                value_lc,
+            );
+        } else {
+            // We're just mimicking SF behavior here.
+            const conditions = [];
+
+            for (const part of value_lc.split('/')) {
+                const part_stripped = part.replace(INEXACT_REGEX, '');
+
+                if (part_stripped.length > 0) {
+                    conditions.push(this.prop_cond(
+                        TYPE_SUBSTRING,
+                        PROP_NAME_INEXACT,
+                        part_stripped,
+                    ));
+                }
+            }
+
+            if (conditions.length === 0) {
+                return {
+                    type: TYPE_TRUE,
+                };
+            }
+
+            if (conditions.length === 1) {
+                return conditions[0];
+            } else {
+                return {
+                    type: TYPE_AND,
+                    conditions,
+                };
+            }
+        }
     }
 
     parse_oracle_cond(operator) {
@@ -1014,12 +1106,16 @@ class Query_Parser {
             return null;
         }
 
-        const value = this.parse_string().toLocaleLowerCase('en');
+        const [value] = this.parse_string();
+
+        if (value.length === 0) {
+            return null;
+        }
 
         return this.prop_cond(
             TYPE_SUBSTRING,
-            PROP_ORACLE_TEXT,
-            value,
+            PROP_ORACLE_TEXT_SEARCH,
+            value.toLocaleLowerCase('en'),
         );
     }
 
@@ -1066,7 +1162,7 @@ class Query_Parser {
             return null;
         }
 
-        const value = this.parse_string();
+        const [value] = this.parse_string();
 
         if (value.length === 0) {
             return null;
@@ -1074,14 +1170,28 @@ class Query_Parser {
 
         return this.prop_cond(
             TYPE_SUBSTRING,
-            PROP_TYPE,
+            PROP_TYPE_SEARCH,
             value.toLocaleLowerCase('en'),
         );
     }
 
     parse_string() {
-        // TODO: Support quotes.
-        return this.parse_word();
+        switch (this.char()) {
+            case '"':
+            case "'": {
+                const end = this.query_string.indexOf(this.char(), this.pos + 1);
+
+                if (end !== -1) {
+                    const start_pos = this.pos + 1;
+                    this.pos = end + 1;
+                    return [this.query_string.slice(start_pos, this.pos - 1), true];
+                }
+
+                // Fall through switch.
+            }
+        }
+
+        return [this.parse_word(), false];
     }
 
     parse_word() {
@@ -1568,7 +1678,7 @@ async function find_cards_matching_query(query, sort_order, sort_asc, logger, ca
 }
 
 function matches_query(card_idx, query, logger) {
-    const name = static.cards.get(card_idx, PROP_NAME);
+    const name = static.cards.name(card_idx);
     logger.log(`evaluating query with "${name}"`, card_idx);
 
     try {
@@ -1725,7 +1835,7 @@ function matches_comparison_condition(card_idx, condition, logger) {
                     result = value % 2 !== 0;
                     break;
                 case TYPE_SUBSTRING:
-                    result = value.toLocaleLowerCase('en').includes(condition.value);
+                    result = value.includes(condition.value);
                     break;
                 default:
                     throw Error(`Invalid condition type "${condition.type}".`);
@@ -1833,6 +1943,30 @@ async function run_test_suite() {
             }
         });
     }
+
+    test_query(
+        'name, ignore punctuation',
+        't.a/\\,m\'":i;yoc',
+        ['Tamiyo, Collector of Tales', 'Tamiyo, Compleated Sage'],
+    );
+
+    test_query(
+        'name, match split cards',
+        "'FIRE //'",
+        ['Fire // Ice'],
+    );
+
+    test_query(
+        'name, match split cards inexact',
+        "fire//ice",
+        ['Fire // Ice', 'Ghostfire Slice', 'Sword of Fire and Ice'],
+    );
+
+    test_query(
+        "name, match double-faced cards",
+        '"pathway // bould"',
+        ['Branchloft Pathway // Boulderloft Pathway'],
+    );
 
     test_query(
         'cmc=',
@@ -2040,6 +2174,24 @@ async function run_test_suite() {
         ['Elvish Scrapper', 'Scuzzback Scrapper', 'Khenra Scrapper', 'Gruul Scrapper', 'Scrapper Champion', 'Tuktuk Scrapper', 'Narstad Scrapper'],
     );
 
+    test_query(
+        'quotes "',
+        '"boros guild"',
+        ['Boros Guildgate', 'Boros Guildmage'],
+    );
+
+    test_query(
+        "quotes '",
+        "o:'one item'",
+        ['Goblin Game', "Ladies' Knight"],
+    );
+
+    test_query(
+        "ignore single quote",
+        "o:tamiyo's cmc>4",
+        ['Tamiyo, Compleated Sage'],
+    );
+
     let executed = 0;
     let succeeded = 0;
 
@@ -2069,11 +2221,13 @@ async function run_test_suite() {
         }
     }
 
+    const failed = executed - succeeded;
+
     if (executed === succeeded) {
         Console_Logger.info(`Ran ${executed} tests, all succeeded.`);
     } else {
-        Console_Logger.info(`Ran ${executed} tests, ${executed - succeeded} failed.`);
-        alert('Tests failed!');
+        Console_Logger.info(`Ran ${executed} tests, ${failed} failed.`);
+        alert(`${failed} Tests failed!`);
     }
 
     Console_Logger.time_end('run_test_suite');
