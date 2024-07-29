@@ -726,7 +726,13 @@ class Query_Parser {
 
             const condition = this.parse_condition();
 
-            if (condition !== null) {
+            if (condition === null) {
+                continue;
+            }
+
+            if (condition.type === TYPE_AND) {
+                conditions.push(...condition.conditions);
+            } else {
                 conditions.push(condition);
             }
         }
@@ -1069,7 +1075,7 @@ class Query_Parser {
                 value_lc,
             );
         } else {
-            // We're just mimicking SF behavior here.
+            // We're just mimicking SF behavior here...
             const conditions = [];
 
             for (const part of value_lc.split('/')) {
@@ -1092,12 +1098,12 @@ class Query_Parser {
 
             if (conditions.length === 1) {
                 return conditions[0];
-            } else {
-                return {
-                    type: TYPE_AND,
-                    conditions,
-                };
             }
+
+            return {
+                type: TYPE_AND,
+                conditions,
+            };
         }
     }
 
