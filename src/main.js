@@ -329,7 +329,11 @@ async function init() {
 
     Console_Logger.time_end('init');
 
-    if (params.get('tests')?.toLocaleLowerCase('en') === 'true') {
+    // Run tests when hostname is localhost or an IPv4 address or explicit parameter is passed.
+    if (window.location.hostname === 'localhost'
+        || /^\d+\.\d+\.\d+\.\d+(:\d+)?$/g.test(window.location.hostname)
+        || params.get('tests')?.toLocaleLowerCase('en') === 'true'
+    ) {
         run_test_suite();
     }
 }
@@ -686,7 +690,15 @@ class Query_Parser {
         this.query_string = query_string;
         this.pos = 0;
         this.props = new Set();
-        const condition = this.parse_conjunction();
+
+        let condition = this.parse_disjunction();
+
+        if (condition === false || this.chars_left()) {
+            condition = { type: TYPE_NOT, condition: { type: TYPE_TRUE } };
+        } else if (condition === null) {
+            condition = { type: TYPE_TRUE };
+        }
+
         return {
             props: [...this.props],
             condition,
@@ -709,6 +721,7 @@ class Query_Parser {
         switch (this.char()) {
             case ' ':
             case '\t':
+            case ')':
                 return true;
 
             default:
@@ -716,16 +729,80 @@ class Query_Parser {
         }
     }
 
-    parse_conjunction() {
+    parse_disjunction() {
         const conditions = [];
 
         while (this.chars_left()) {
+            if (this.char() === ')') {
+                break;
+            }
+
             if (this.is_boundary()) {
                 this.pos++;
                 continue;
             }
 
+            const condition = this.parse_conjunction();
+
+            if (condition === false) {
+                return false;
+            }
+
+            if (condition === null) {
+                continue;
+            }
+
+            if (condition.type === TYPE_OR) {
+                conditions.push(...condition.conditions);
+            } else {
+                conditions.push(condition);
+            }
+        }
+
+        if (conditions.length === 0) {
+            return null;
+        }
+
+        if (conditions.length === 1) {
+            return conditions[0];
+        }
+
+        return {
+            type: TYPE_OR,
+            conditions,
+        };
+    }
+
+    parse_conjunction() {
+        const conditions = [];
+
+        while (this.chars_left()) {
+            if (this.char() === ')') {
+                break;
+            }
+
+            if (this.is_boundary()) {
+                this.pos++;
+                continue;
+            }
+
+            if (
+                this.query_string.slice(this.pos, this.pos + 2).toLocaleLowerCase('en') === 'or'
+            ) {
+                this.pos += 2;
+
+                if (this.is_boundary()) {
+                    break;
+                } else {
+                    this.pos -= 2;
+                }
+            }
+
             const condition = this.parse_condition();
+
+            if (condition === false) {
+                return false;
+            }
 
             if (condition === null) {
                 continue;
@@ -739,9 +816,7 @@ class Query_Parser {
         }
 
         if (conditions.length === 0) {
-            return {
-                type: TYPE_TRUE,
-            };
+            return null;
         }
 
         if (conditions.length === 1) {
@@ -755,66 +830,80 @@ class Query_Parser {
     }
 
     parse_condition() {
-        const start_pos = this.pos;
+        if (this.char() === '(') {
+            this.pos++;
+            const result = this.parse_disjunction();
 
-        let result = null;
+            if (result === false) {
+                return false;
+            }
+
+            if (this.char() !== ')') {
+                return false;
+            }
+
+            this.pos++;
+            return result;
+        }
 
         if (this.char() === '-') {
-            result = this.parse_negation();
-        } else {
-            const [keyword, operator] = this.parse_keyword_and_operator();
+            return this.parse_negation();
+        }
 
-            switch (keyword) {
-                case 'color':
-                case 'c':
-                    result = this.parse_color_or_id_cond(operator, TYPE_GE, PROP_COLOR);
-                    break;
+        const start_pos = this.pos;
+        const [keyword, operator] = this.parse_keyword_and_operator();
+        let result = null;
 
-                case 'identity':
-                case 'id':
-                    result = this.parse_color_or_id_cond(operator, TYPE_LE, PROP_IDENTITY);
-                    break;
+        switch (keyword) {
+            case 'color':
+            case 'c':
+                result = this.parse_color_or_id_cond(operator, TYPE_GE, PROP_COLOR);
+                break;
 
-                case 'format':
-                case 'f':
-                    result = this.parse_format_cond(operator);
-                    break;
+            case 'identity':
+            case 'id':
+                result = this.parse_color_or_id_cond(operator, TYPE_LE, PROP_IDENTITY);
+                break;
 
-                case 'mana':
-                case 'm':
-                    result = this.parse_mana_cost_cond(operator);
-                    break;
+            case 'format':
+            case 'f':
+                result = this.parse_format_cond(operator);
+                break;
 
-                case 'manavalue':
-                case 'mv':
-                case 'cmc':
-                    result = this.parse_mana_value_cond(operator);
-                    break;
+            case 'mana':
+            case 'm':
+                result = this.parse_mana_cost_cond(operator);
+                break;
 
-                case 'oracle':
-                case 'o':
-                case 'fulloracle':
-                case 'fo':
-                    result = this.parse_oracle_cond(operator);
-                    break;
+            case 'manavalue':
+            case 'mv':
+            case 'cmc':
+                result = this.parse_mana_value_cond(operator);
+                break;
 
-                case 'rarity':
-                case 'r':
-                    result = this.parse_rarity_cond(operator);
-                    break;
+            case 'oracle':
+            case 'o':
+            case 'fulloracle':
+            case 'fo':
+                result = this.parse_oracle_cond(operator);
+                break;
 
-                case 'set':
-                case 's':
-                case 'edition':
-                case 'e':
-                    result = this.parse_set_cond(operator);
-                    break;
+            case 'rarity':
+            case 'r':
+                result = this.parse_rarity_cond(operator);
+                break;
 
-                case 'type':
-                case 't':
-                    result = this.parse_type_cond(operator);
-                    break;
-            }
+            case 'set':
+            case 's':
+            case 'edition':
+            case 'e':
+                result = this.parse_set_cond(operator);
+                break;
+
+            case 'type':
+            case 't':
+                result = this.parse_type_cond(operator);
+                break;
         }
 
         if (result === null) {
@@ -828,14 +917,19 @@ class Query_Parser {
     parse_negation() {
         this.pos++;
 
-        if (this.is_boundary()) {
-            this.pos--;
-            return null;
+        const condition = this.parse_condition();
+
+        if (condition === false) {
+            return false;
+        }
+
+        if (condition?.type === TYPE_NOT) {
+            return condition.condition;
         }
 
         return {
             type: TYPE_NOT,
-            condition: this.parse_condition(),
+            condition: condition ?? { type: TYPE_TRUE },
         };
     }
 
@@ -1086,7 +1180,7 @@ class Query_Parser {
             // We're just mimicking SF behavior here...
             const conditions = [];
 
-            for (const part of value_lc.split('/')) {
+            for (const part of value_lc.split(/[/\\]/g)) {
                 const part_stripped = part.replace(INEXACT_REGEX, '');
 
                 if (part_stripped.length > 0) {
@@ -1099,9 +1193,7 @@ class Query_Parser {
             }
 
             if (conditions.length === 0) {
-                return {
-                    type: TYPE_TRUE,
-                };
+                return null;
             }
 
             if (conditions.length === 1) {
@@ -1926,7 +2018,7 @@ async function run_test_suite() {
         const expected = new Set(expected_matches);
         assert(expected.size <= MAX_MATCHES);
 
-        test(`${name} (${query_string})`, async logger => {
+        test(`${name} [${query_string}]`, async logger => {
             const query = parse_query(query_string);
             const result = await find_cards_matching_query(
                 query,
@@ -1989,6 +2081,12 @@ async function run_test_suite() {
     test_query(
         'name, match split cards inexact',
         "fire//ice",
+        ['Fire // Ice', 'Ghostfire Slice', 'Sword of Fire and Ice'],
+    );
+
+    test_query(
+        'name, match split cards with backslash',
+        "fire\\ice",
         ['Fire // Ice', 'Ghostfire Slice', 'Sword of Fire and Ice'],
     );
 
@@ -2217,21 +2315,96 @@ async function run_test_suite() {
     );
 
     test_query(
-        "ignore single quote",
+        'ignore single quote',
         "o:tamiyo's cmc>4",
         ['Tamiyo, Compleated Sage'],
     );
 
     test_query(
-        "set",
-        "s:war ajani",
+        'set',
+        's:war ajani',
         ["Ajani's Pridemate", 'Ajani, the Greathearted'],
     );
 
     test_query(
-        "set",
-        "e:RAV drake",
+        'edition',
+        'e:RAV drake',
         ['Drake Familiar', 'Snapping Drake', 'Tattered Drake'],
+    );
+
+    // SF seems to interpret this as "name does not contain the empty string".
+    test_query(
+        'negation',
+        '-t:land forest',
+        ['Deep Forest Hermit', 'Forest Bear', 'Jaheira, Friend of the Forest'],
+    );
+
+    // SF seems to interpret this as "name does not contain the empty string".
+    test_query(
+        'empty negation',
+        '-',
+        [],
+    );
+
+    // SF seems to interpret this as "name does not contain the empty string".
+    test_query(
+        'effectively empty negation',
+        '-.',
+        [],
+    );
+
+    test_query(
+        'disjunction',
+        'animate t:instant or abundance t:enchantment',
+        ['Abundance', 'Animate Land', 'Leyline of Abundance', 'Mana Abundance', 'Overabundance', 'Trace of Abundance'],
+    );
+
+    test_query(
+        'disjunction',
+        '( mind OR power ) drain',
+        ['Drain Power', 'Mind Drain'],
+    );
+
+    test_query(
+        'parens',
+        'mana for (t:creature or t:artifact)',
+        ['Manaforce Mace', 'Manaforge Cinder', 'Manaform Hellkite'],
+    );
+
+    test_query(
+        'nested parens',
+        'mana for ((t:creature t:dragon) or t:artifact)',
+        ['Manaforce Mace', 'Manaform Hellkite'],
+    );
+
+    test_query(
+        'empty parens',
+        'draining or ()',
+        ['Draining Whelk'],
+    );
+
+    test_query(
+        'empty parens',
+        'draining or ()',
+        ['Draining Whelk'],
+    );
+
+    test_query(
+        'no space before opening paren',
+        'mox(ruby)',
+        [],
+    );
+
+    test_query(
+        'too many opening parens',
+        '((mox) sapphire',
+        [],
+    );
+
+    test_query(
+        'too many closing parens',
+        '(mox) sapphire)',
+        [],
     );
 
     let executed = 0;
