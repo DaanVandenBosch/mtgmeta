@@ -1,6 +1,7 @@
 // Cards to exclude from the final data.
 const EXCLUDED_SET_TYPES = ['memorabilia', 'token'];
 const EXCLUDED_LAYOUTS = ['scheme', 'token', 'planar', 'emblem', 'vanguard', 'double_faced_token'];
+const EXCLUDED_SETS = ['cmb2'];
 // We also exclude purely digital cards.
 
 const sf_bulk_info = await(await fetch('https://api.scryfall.com/bulk-data')).json();
@@ -23,6 +24,10 @@ for (const src_card of oracle_cards) {
     }
 
     if (EXCLUDED_LAYOUTS.includes(src_card.layout)) {
+        continue;
+    }
+
+    if (EXCLUDED_SETS.includes(src_card.set)) {
         continue;
     }
 

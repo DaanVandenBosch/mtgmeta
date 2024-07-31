@@ -2356,7 +2356,7 @@ async function run_test_suite() {
     test_query(
         'disjunction',
         'animate t:instant or abundance t:enchantment',
-        ['Abundance', 'Animate Land', 'Leyline of Abundance', 'Mana Abundance', 'Overabundance', 'Trace of Abundance'],
+        ['Abundance', 'Animate Land', 'Leyline of Abundance', 'Overabundance', 'Trace of Abundance'],
     );
 
     test_query(
