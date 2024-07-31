@@ -47,6 +47,7 @@ for (const src_card of oracle_cards) {
             formats,
             identity: src_card.color_identity.join(''),
             rarities: new Set([src_card.rarity]),
+            sets: new Set([src_card.set]),
             sfurl,
 
             // Card or face properties. I.e. either one or two values per card.
@@ -123,6 +124,7 @@ for (const src_card of default_cards) {
 
     if (dst_card) {
         dst_card.rarities.add(src_card.rarity);
+        dst_card.sets.add(src_card.set);
     }
 }
 
@@ -148,6 +150,7 @@ for (const prop of [
     'name',
     'oracle',
     'rarities',
+    'sets',
     'sfurl',
     'type',
 ]) {
