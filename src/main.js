@@ -25,6 +25,7 @@ const PROP_NAME_INEXACT = 'name_inexact';
 const PROP_ORACLE_TEXT = 'oracle';
 const PROP_ORACLE_TEXT_SEARCH = 'oracle_search';
 const PROP_RARITY = 'rarities';
+const PROP_SET = 'sets';
 const PROP_TYPE = 'type';
 const PROP_TYPE_SEARCH = 'type_search';
 
@@ -802,6 +803,13 @@ class Query_Parser {
                     result = this.parse_rarity_cond(operator);
                     break;
 
+                case 'set':
+                case 's':
+                case 'edition':
+                case 'e':
+                    result = this.parse_set_cond(operator);
+                    break;
+
                 case 'type':
                 case 't':
                     result = this.parse_type_cond(operator);
@@ -1122,6 +1130,22 @@ class Query_Parser {
             TYPE_SUBSTRING,
             PROP_ORACLE_TEXT_SEARCH,
             value.toLocaleLowerCase('en'),
+        );
+    }
+
+    parse_set_cond(operator) {
+        const start_pos = this.pos;
+        let value = this.parse_word().toLocaleLowerCase('en');
+
+        if (!this.is_boundary()) {
+            this.pos = start_pos;
+            return null;
+        }
+
+        return this.prop_cond(
+            this.operator_to_type(operator, TYPE_EQ),
+            PROP_SET,
+            value,
         );
     }
 
@@ -2196,6 +2220,18 @@ async function run_test_suite() {
         "ignore single quote",
         "o:tamiyo's cmc>4",
         ['Tamiyo, Compleated Sage'],
+    );
+
+    test_query(
+        "set",
+        "s:war ajani",
+        ["Ajani's Pridemate", 'Ajani, the Greathearted'],
+    );
+
+    test_query(
+        "set",
+        "e:RAV drake",
+        ['Drake Familiar', 'Snapping Drake', 'Tattered Drake'],
     );
 
     let executed = 0;
