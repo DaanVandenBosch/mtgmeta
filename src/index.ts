@@ -776,15 +776,15 @@ class Query_Parser {
         };
     }
 
-    chars_left(): boolean {
+    private chars_left(): boolean {
         return this.pos < this.query_string.length;
     }
 
-    char(): string {
+    private char(): string {
         return this.query_string[this.pos];
     }
 
-    is_boundary(): boolean {
+    private is_boundary(): boolean {
         if (!this.chars_left()) {
             return true;
         }
@@ -800,7 +800,7 @@ class Query_Parser {
         }
     }
 
-    parse_disjunction(): Condition | false | null {
+    private parse_disjunction(): Condition | false | null {
         const conditions = [];
 
         while (this.chars_left()) {
@@ -844,7 +844,7 @@ class Query_Parser {
         };
     }
 
-    parse_conjunction(): Condition | false | null {
+    private parse_conjunction(): Condition | false | null {
         const conditions = [];
 
         while (this.chars_left()) {
@@ -900,7 +900,7 @@ class Query_Parser {
         };
     }
 
-    parse_condition(): Condition | false | null {
+    private parse_condition(): Condition | false | null {
         if (this.char() === '(') {
             this.pos++;
             const result = this.parse_disjunction();
@@ -991,7 +991,7 @@ class Query_Parser {
         return result;
     }
 
-    parse_negation(): Condition | false {
+    private parse_negation(): Condition | false {
         this.pos++;
 
         const condition = this.parse_condition();
@@ -1010,7 +1010,7 @@ class Query_Parser {
         };
     }
 
-    parse_keyword_and_operator(): { keyword: string, operator: Operator } | null {
+    private parse_keyword_and_operator(): { keyword: string, operator: Operator } | null {
         const start_pos = this.pos;
 
         outer: while (!this.is_boundary()) {
@@ -1038,7 +1038,7 @@ class Query_Parser {
         return null;
     }
 
-    parse_color_or_id_cond(
+    private parse_color_or_id_cond(
         operator: Operator,
         colon_type: 'le' | 'ge',
         prop: Prop,
@@ -1185,7 +1185,7 @@ class Query_Parser {
         });
     }
 
-    parse_format_cond(operator: Operator): Comparison_Condition | null {
+    private parse_format_cond(operator: Operator): Comparison_Condition | null {
         if (operator !== ':' && operator !== '=') {
             return null;
         }
@@ -1199,7 +1199,7 @@ class Query_Parser {
         });
     }
 
-    parse_mana_cost_cond(operator: Operator): Comparison_Condition | null {
+    private parse_mana_cost_cond(operator: Operator): Comparison_Condition | null {
         const { cost, len } = parse_mana_cost(this.query_string, this.pos);
 
         if (Object.keys(cost).length === 0) {
@@ -1215,7 +1215,7 @@ class Query_Parser {
         });
     }
 
-    parse_mana_value_cond(operator: Operator): Comparison_Condition | Predicate_Condition | null {
+    private parse_mana_value_cond(operator: Operator): Comparison_Condition | Predicate_Condition | null {
         const value_string = this.parse_word().toLocaleLowerCase('en');
 
         if (operator === ':' || operator === '=') {
@@ -1247,7 +1247,7 @@ class Query_Parser {
         });
     }
 
-    parse_name_cond(): Condition | null {
+    private parse_name_cond(): Condition | null {
         const { value, quoted } = this.parse_string();
         const value_lc = value.toLocaleLowerCase('en');
 
@@ -1288,7 +1288,7 @@ class Query_Parser {
         }
     }
 
-    parse_oracle_cond(operator: Operator): Substring_Condition | null {
+    private parse_oracle_cond(operator: Operator): Substring_Condition | null {
         if (operator !== ':' && operator !== '=') {
             return null;
         }
@@ -1306,7 +1306,7 @@ class Query_Parser {
         });
     }
 
-    parse_set_cond(operator: Operator): Comparison_Condition | null {
+    private parse_set_cond(operator: Operator): Comparison_Condition | null {
         const start_pos = this.pos;
         let value = this.parse_word().toLocaleLowerCase('en');
 
@@ -2067,23 +2067,25 @@ function matches_comparison_condition(
     return false;
 }
 
-function get_el<T extends Element>(query: string): T {
+function get_el<E extends Element>(query: string): E {
     const element = document.querySelector(query);
 
     if (element === null) {
         throw Error(`No element found for query "${query}".`);
     }
 
-    return element as T;
+    return element as E;
 }
 
-function el<T extends HTMLElement>(tagName: string): T {
-    return document.createElement(tagName) as T;
+function el<E extends HTMLElement>(tagName: string): E {
+    return document.createElement(tagName) as E;
 }
 
 function deep_eq<T>(a: T, b: T): boolean {
     if (a instanceof Set) {
         return b instanceof Set && a.size === b.size && a.isSubsetOf(b);
+    } else if (Array.isArray(a) || (typeof a === 'object' && a !== null)) {
+        throw Error(`Type of ${a} is unsupported.`);
     } else {
         return a === b;
     }
