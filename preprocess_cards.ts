@@ -1,10 +1,12 @@
+import { mkdir } from "node:fs/promises";
+
 // Cards to exclude from the final data.
 const EXCLUDED_SET_TYPES = ['memorabilia', 'token'];
 const EXCLUDED_LAYOUTS = ['scheme', 'token', 'planar', 'emblem', 'vanguard', 'double_faced_token'];
 const EXCLUDED_SETS = ['cmb2'];
 // We also exclude purely digital cards.
 
-const sf_bulk_info = await(await fetch('https://api.scryfall.com/bulk-data')).json();
+const sf_bulk_info = await (await fetch('https://api.scryfall.com/bulk-data')).json();
 
 const processed_cards = [];
 // We put digital cards in this map during the pass over the oracle cards. Then if, during the pass
@@ -33,7 +35,7 @@ for (const src_card of oracle_cards) {
 
     try {
         for (const prop of ['colors', 'image_uris']) {
-            if (prop in src_card && src_card.card_faces?.some(f => prop in f)) {
+            if (prop in src_card && src_card.card_faces?.some((f: any) => prop in f)) {
                 throw Error(`${prop} in both card and faces.`);
             }
         }
@@ -51,17 +53,17 @@ for (const src_card of oracle_cards) {
             cmc: src_card.cmc,
             formats,
             identity: src_card.color_identity.join(''),
-            rarities: new Set([src_card.rarity]),
-            sets: new Set([src_card.set]),
+            rarities: new Set<string>([src_card.rarity]),
+            sets: new Set<string>([src_card.set]),
             sfurl,
 
             // Card or face properties. I.e. either one or two values per card.
-            colors: [],
-            cost: [],
-            img: [],
-            name: [],
-            oracle: [],
-            type: [],
+            colors: Array<string>(),
+            cost: Array<string>(),
+            img: Array<string>(),
+            name: Array<string>(),
+            oracle: Array<string>(),
+            type: Array<string>(),
         };
 
         // Properties that will be on the face if there are faces, and on the card if there are no
@@ -159,7 +161,7 @@ for (const prop of [
     'sfurl',
     'type',
 ]) {
-    Bun.write(
+    await Bun.write(
         `src/card_${prop}.json`,
         JSON.stringify(
             processed_cards.map(c => c[prop]),
@@ -168,14 +170,14 @@ for (const prop of [
     );
 }
 
-Bun.write(
+await Bun.write(
     'src/cards.idx',
     new Uint8Array(sort_indices, 0, sort_indices_len),
 );
 
 // Helper functions.
 
-async function get_card_data(sf_bulk_info, type) {
+async function get_card_data(sf_bulk_info: any, type: string): Promise<any> {
     for (const data of sf_bulk_info.data) {
         if (data.type === type) {
             if (!data.download_uri.endsWith('.json')) {
@@ -194,7 +196,8 @@ async function get_card_data(sf_bulk_info, type) {
                 throw Error(`Computed filename looks wrong: ${filename}`);
             }
 
-            const file = Bun.file(filename);
+            const dir = 'preprocessing';
+            const file = Bun.file(`${dir}/${filename}`);
 
             if (await file.exists()) {
                 console.log(`Found a file named ${filename}, loading it.`);
@@ -202,7 +205,8 @@ async function get_card_data(sf_bulk_info, type) {
             } else {
                 console.log(`No file named ${filename}, downloading bulk data.`);
                 const bulk_data = await (await fetch(data.download_uri)).json();
-                Bun.write(filename, JSON.stringify(bulk_data));
+                await mkdir(dir, { recursive: true });
+                await Bun.write(file, JSON.stringify(bulk_data));
                 return bulk_data;
             }
         }
@@ -211,11 +215,11 @@ async function get_card_data(sf_bulk_info, type) {
     throw Error(`Couldn't find bulk data URI for type ${type}.`);
 }
 
-function full_card_name(card) {
+function full_card_name(card: any): string {
     return card.name.length === 1 ? card.name[0] : (card.name[0] + ' // ' + card.name[1]);
 }
 
-function generate_sort_indices(buf, cards) {
+function generate_sort_indices(buf: ArrayBuffer, cards: any[]): number {
     const view = new DataView(buf);
     const card_to_idx = new Map;
 
@@ -225,7 +229,7 @@ function generate_sort_indices(buf, cards) {
     }
 
     // Pairs of grouping functions and group sorting functions.
-    const indices = [
+    const indices: [(card: any) => any, (a: any, b: any) => number][] = [
         [card => card.cmc, (a, b) => a - b],
     ];
 
