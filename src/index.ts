@@ -1,33 +1,22 @@
 const MAX_CARDS = 120;
 
-const TYPE_TRUE = 'true';
-const TYPE_OR = 'or';
-const TYPE_AND = 'and';
-const TYPE_NOT = 'not';
-const TYPE_EQ = 'eq';
-const TYPE_NE = 'ne';
-const TYPE_GT = 'gt';
-const TYPE_LT = 'lt';
-const TYPE_GE = 'ge';
-const TYPE_LE = 'le';
-const TYPE_EVEN = 'even';
-const TYPE_ODD = 'odd';
-const TYPE_SUBSTRING = 'substring';
-
-const PROP_COLOR = 'colors';
-const PROP_FORMAT = 'formats';
-const PROP_IDENTITY = 'identity';
-const PROP_MANA_COST = 'cost';
-const PROP_MANA_VALUE = 'cmc';
-const PROP_NAME = 'name';
-const PROP_NAME_SEARCH = 'name_search';
-const PROP_NAME_INEXACT = 'name_inexact';
-const PROP_ORACLE_TEXT = 'oracle';
-const PROP_ORACLE_TEXT_SEARCH = 'oracle_search';
-const PROP_RARITY = 'rarities';
-const PROP_SET = 'sets';
-const PROP_TYPE = 'type';
-const PROP_TYPE_SEARCH = 'type_search';
+type Prop =
+    'colors' |
+    'formats' |
+    'identity' |
+    'img' |
+    'cost' |
+    'cmc' |
+    'name' |
+    'name_search' |
+    'name_inexact' |
+    'oracle' |
+    'oracle_search' |
+    'rarities' |
+    'sets' |
+    'sfurl' |
+    'type' |
+    'type_search';
 
 const MANA_WHITE = 'W';
 const MANA_BLUE = 'U';
@@ -61,39 +50,37 @@ const POOL_ALL = 'all';
 const POOL_PREMODERN_PAUPER = 'pmp';
 const POOL_PREMODERN_PAUPER_COMMANDER = 'pmpc';
 
-const POOLS = {
-    [POOL_ALL]: null,
-    [POOL_PREMODERN_PAUPER]: null,
-    [POOL_PREMODERN_PAUPER_COMMANDER]: null,
-};
+const POOLS: { [key: string]: Query } = {};
 
 const SORT_ORDER_TO_INDEX = Object.freeze({
-    [PROP_MANA_VALUE]: 0,
-    [PROP_NAME]: null,
+    cmc: 0,
+    name: null,
 });
+
+type Sort_Order = keyof typeof SORT_ORDER_TO_INDEX;
 
 const INEXACT_REGEX = /[.,:;/\\'" \t]+/g;
 
 /** Static data that gets loaded once and then never changes. */
-const static = {
+const data = {
     cards: {
-        length: null,
-        props: new Map,
-        load_promises: new Map,
+        length: null as number | null,
+        props: new Map<Prop, any>(),
+        load_promises: new Map<Prop, Promise<void>>(),
 
-        async load(prop) {
+        async load(prop: Prop) {
             switch (prop) {
-                case PROP_NAME_SEARCH:
-                case PROP_NAME_INEXACT:
-                    prop = PROP_NAME;
+                case 'name_search':
+                case 'name_inexact':
+                    prop = 'name';
                     break;
 
-                case PROP_ORACLE_TEXT_SEARCH:
-                    prop = PROP_ORACLE_TEXT;
+                case 'oracle_search':
+                    prop = 'oracle';
                     break;
 
-                case PROP_TYPE_SEARCH:
-                    prop = PROP_TYPE;
+                case 'type_search':
+                    prop = 'type';
                     break;
             }
 
@@ -104,8 +91,8 @@ const static = {
                     const data = await response.json();
 
                     switch (prop) {
-                        case PROP_COLOR:
-                        case PROP_MANA_COST: {
+                        case 'colors':
+                        case 'cost': {
                             for (const faces of data) {
                                 for (let i = 0, len = faces.length; i < len; i++) {
                                     const value_str = faces[i];
@@ -113,11 +100,11 @@ const static = {
                                     // Ignore non-existent values. Also ignore empty mana costs of the
                                     // backside of transform cards.
                                     if (value_str === null
-                                        || (i >= 1 && prop === PROP_MANA_COST && value_str === '')
+                                        || (i >= 1 && prop === 'cost' && value_str === '')
                                     ) {
                                         faces[i] = null;
                                     } else {
-                                        faces[i] = parse_mana_cost(value_str)[0];
+                                        faces[i] = parse_mana_cost(value_str).cost;
                                     }
                                 }
                             }
@@ -125,15 +112,15 @@ const static = {
                             break;
                         }
 
-                        case PROP_IDENTITY: {
+                        case 'identity': {
                             for (let i = 0, len = data.length; i < len; i++) {
-                                data[i] = parse_mana_cost(data[i])[0];
+                                data[i] = parse_mana_cost(data[i]).cost;
                             }
 
                             break;
                         }
 
-                        case PROP_NAME: {
+                        case 'name': {
                             const search_data = [];
                             const inexact_data = [];
 
@@ -151,16 +138,16 @@ const static = {
                                 );
                             }
 
-                            this.props.set(PROP_NAME_SEARCH, search_data);
-                            this.props.set(PROP_NAME_INEXACT, inexact_data);
+                            this.props.set('name_search', search_data);
+                            this.props.set('name_inexact', inexact_data);
                             break;
                         }
 
-                        case PROP_ORACLE_TEXT:
-                        case PROP_TYPE: {
-                            const search_data =
-                                data.map(values => values.map(v => v.toLocaleLowerCase('en')));
-                            this.props.set(prop + '_search', search_data);
+                        case 'oracle':
+                        case 'type': {
+                            const search_data = data.map((values: string[]) =>
+                                values.map(v => v.toLocaleLowerCase('en')));
+                            this.props.set((prop + '_search') as Prop, search_data);
                             break;
                         }
                     }
@@ -175,12 +162,12 @@ const static = {
             return promise;
         },
 
-        get(idx, prop) {
+        get(idx: number, prop: Prop): any[] {
             return this.props.get(prop)?.at(idx) ?? null;
         },
 
-        name(idx) {
-            const names = this.get(idx, PROP_NAME);
+        name(idx: number): string | null {
+            const names = this.get(idx, 'name');
 
             if (names === null || names.length == 0) {
                 return null;
@@ -189,7 +176,7 @@ const static = {
             return names.join(' // ');
         },
 
-        scryfall_url(idx) {
+        scryfall_url(idx: number): string | null {
             const sfurl = this.get(idx, 'sfurl');
 
             if (sfurl === null) {
@@ -199,7 +186,7 @@ const static = {
             return `https://scryfall.com/${sfurl}`;
         },
 
-        image_url(idx) {
+        image_url(idx: number): string | null {
             const img = this.get(idx, 'img')?.at(0);
 
             if (img == null) {
@@ -209,8 +196,8 @@ const static = {
             return `https://cards.scryfall.io/normal/${img}`;
         },
     },
-    sort_indices: null,
-    sort_indices_load_promise: null,
+    sort_indices: null as ArrayBuffer | null,
+    sort_indices_load_promise: null as Promise<void> | null,
 
     async load_sort_indices() {
         let promise = this.sort_indices_load_promise;
@@ -228,42 +215,46 @@ const static = {
 };
 
 /** User input. */
-const INPUT_QUERY_STRING = 'query_string';
-const INPUT_POOL = 'pool';
-const INPUT_SORT_ORDER = 'sort_order';
-const INPUT_SORT_ASC = 'sort_asc';
-const INPUT_START_POS = 'start_index';
-
 const DEFAULT_QUERY_STRING = '';
 const DEFAULT_POOL = POOL_ALL;
-const DEFAULT_SORT_ORDER = PROP_NAME;
+const DEFAULT_SORT_ORDER = 'name';
 const DEFAULT_SORT_ASC = true;
 const DEFAULT_START_POS = 1;
 
-const inputs = {
-    [INPUT_QUERY_STRING]: DEFAULT_QUERY_STRING,
-    [INPUT_POOL]: DEFAULT_POOL,
-    [INPUT_SORT_ORDER]: DEFAULT_SORT_ORDER,
-    [INPUT_SORT_ASC]: DEFAULT_SORT_ASC,
-    [INPUT_START_POS]: DEFAULT_START_POS,
+type Inputs = {
+    query_string: string,
+    pool: string,
+    sort_order: Sort_Order,
+    sort_asc: boolean,
+    start_pos: number,
+}
+
+type Partial_Inputs = { [K in keyof Inputs]?: Inputs[K] };
+
+const inputs: Inputs = {
+    query_string: DEFAULT_QUERY_STRING,
+    pool: DEFAULT_POOL,
+    sort_order: DEFAULT_SORT_ORDER,
+    sort_asc: DEFAULT_SORT_ASC,
+    start_pos: DEFAULT_START_POS,
 };
 
 /** Output. */
-let result = null;
+let result: { cards: number[], length: number } | null = null;
 
 /** All DOM elements that the user interacts with. */
 const ui = {
-    query_el: null,
-    pool_el: null,
-    sort_order_el: null,
-    sort_dir_asc_el: null,
-    sort_dir_desc_el: null,
-    result_summary_el: null,
-    result_prev_el: null,
-    result_next_el: null,
-    result_first_el: null,
-    result_last_el: null,
-    result_cards_el: null,
+    query_el: undefined as any as HTMLInputElement,
+    pool_el: undefined as any as HTMLSelectElement,
+    sort_order_el: undefined as any as HTMLSelectElement,
+    sort_dir_asc_el: undefined as any as HTMLInputElement,
+    sort_dir_desc_el: undefined as any as HTMLInputElement,
+    result_summary_el: undefined as any as HTMLElement,
+    result_prev_el: undefined as any as HTMLButtonElement,
+    result_next_el: undefined as any as HTMLButtonElement,
+    result_first_el: undefined as any as HTMLButtonElement,
+    result_last_el: undefined as any as HTMLButtonElement,
+    result_cards_el: undefined as any as HTMLElement,
 };
 
 async function init() {
@@ -303,25 +294,28 @@ async function init() {
 
     ui.query_el.onkeydown = e => {
         if (e.key === 'Enter') {
-            set_inputs({ [INPUT_QUERY_STRING]: e.currentTarget.value });
+            set_inputs({ query_string: ui.query_el.value });
         }
     };
 
-    ui.pool_el.onchange = e => set_inputs({ [INPUT_POOL]: e.currentTarget.value });
-    ui.sort_order_el.onchange = e => set_inputs({ [INPUT_SORT_ORDER]: e.currentTarget.value });
-    ui.sort_dir_asc_el.onchange = e => set_inputs({ [INPUT_SORT_ASC]: e.currentTarget.checked });
-    ui.sort_dir_desc_el.onchange = e => set_inputs({ [INPUT_SORT_ASC]: !e.currentTarget.checked });
-    ui.result_prev_el.onclick = () =>
-        set_inputs({ [INPUT_START_POS]: inputs[INPUT_START_POS] - MAX_CARDS });
-    ui.result_next_el.onclick = () =>
-        set_inputs({ [INPUT_START_POS]: inputs[INPUT_START_POS] + MAX_CARDS });
-    ui.result_first_el.onclick = () =>
-        set_inputs({ [INPUT_START_POS]: 1 });
+    ui.pool_el.onchange = () => set_inputs({ pool: ui.pool_el.value });
+    ui.sort_order_el.onchange = () => {
+        if (!(ui.sort_order_el.value in SORT_ORDER_TO_INDEX)) {
+            throw Error(`Invalid sort order "${ui.sort_order_el.value}" in select field.`);
+        }
+
+        set_inputs({ sort_order: ui.sort_order_el.value as Sort_Order });
+    }
+    ui.sort_dir_asc_el.onchange = () => set_inputs({ sort_asc: ui.sort_dir_asc_el.checked });
+    ui.sort_dir_desc_el.onchange = () => set_inputs({ sort_asc: !ui.sort_dir_desc_el.checked });
+    ui.result_prev_el.onclick = () => set_inputs({ start_pos: inputs.start_pos - MAX_CARDS });
+    ui.result_next_el.onclick = () => set_inputs({ start_pos: inputs.start_pos + MAX_CARDS });
+    ui.result_first_el.onclick = () => set_inputs({ start_pos: 1 });
     ui.result_last_el.onclick = () => {
         const start_pos = result === null
             ? 1
             : (Math.floor(result.length / MAX_CARDS) * MAX_CARDS + 1);
-        set_inputs({ [INPUT_START_POS]: start_pos });
+        set_inputs({ start_pos: start_pos });
     }
 
     const params = get_params();
@@ -338,123 +332,130 @@ async function init() {
     }
 }
 
-async function set_inputs(new_inputs) {
+async function set_inputs(new_inputs: Partial_Inputs) {
     const params = get_params();
     await set_inputs_internal(new_inputs, params, true, false);
 }
 
-async function set_inputs_from_params(params, force_filter) {
-    const new_inputs = {};
-
-    new_inputs[INPUT_QUERY_STRING] = params.get('q') ?? DEFAULT_QUERY_STRING;
+async function set_inputs_from_params(params: URLSearchParams, force_filter: boolean) {
+    const new_inputs: Inputs = {
+        query_string: params.get('q') ?? DEFAULT_QUERY_STRING,
+        pool: DEFAULT_POOL,
+        sort_order: DEFAULT_SORT_ORDER,
+        sort_asc: DEFAULT_SORT_ASC,
+        start_pos: DEFAULT_START_POS,
+    };
 
     const pool = params.get('p');
 
-    if (pool in POOLS) {
-        new_inputs[INPUT_POOL] = pool;
-    } else {
-        if (pool !== null) {
+    if (pool !== null) {
+        if (pool in POOLS) {
+            new_inputs.pool = pool;
+        } else {
             Console_Logger.error(`Invalid pool in URL: ${pool}`);
         }
-
-        new_inputs[INPUT_POOL] = DEFAULT_POOL;
     }
 
     const sort_order = params.get('o');
 
-    if (sort_order in SORT_ORDER_TO_INDEX) {
-        new_inputs[INPUT_SORT_ORDER] = sort_order;
-    } else {
-        if (sort_order !== null) {
+    if (sort_order !== null) {
+        if (sort_order in SORT_ORDER_TO_INDEX) {
+            new_inputs.sort_order = sort_order as Sort_Order;
+        } else {
             Console_Logger.error(`Invalid sort order in URL: ${sort_order}`);
         }
-
-        new_inputs[INPUT_SORT_ORDER] = DEFAULT_SORT_ORDER;
     }
 
     const sort_dir = params.get('d');
 
-    if (sort_dir === 'a' || sort_dir === 'd') {
-        new_inputs[INPUT_SORT_ASC] = sort_dir === 'a';
-    } else {
-        if (sort_dir !== null) {
+    if (sort_dir !== null) {
+        if (sort_dir === 'a' || sort_dir === 'd') {
+            new_inputs.sort_asc = sort_dir === 'a';
+        } else {
             Console_Logger.error(`Invalid sort direction in URL: ${sort_dir}`);
         }
-
-        new_inputs[INPUT_SORT_ASC] = DEFAULT_SORT_ASC;
     }
 
     const start_pos_string = params.get('s');
-    const start_pos = parseInt(start_pos_string, 10);
 
-    if (start_pos >= 1) {
-        new_inputs[INPUT_START_POS] = start_pos;
-    } else {
-        if (start_pos_string !== null) {
+    if (start_pos_string !== null) {
+        const start_pos = parseInt(start_pos_string, 10);
+
+        if (start_pos >= 1) {
+            new_inputs.start_pos = start_pos;
+        } else {
             Console_Logger.error(`Invalid start position in URL: ${start_pos_string}`);
         }
-
-        new_inputs[INPUT_START_POS] = DEFAULT_START_POS;
     }
 
     await set_inputs_internal(new_inputs, null, false, force_filter);
 }
 
-async function set_inputs_internal(new_inputs, params, update_url, force_filter) {
+async function set_inputs_internal(
+    new_inputs: Partial_Inputs,
+    params: URLSearchParams | null,
+    update_url: boolean,
+    force_filter: boolean,
+) {
     let any_changed = false;
-    let start_pos = null;
+    let start_pos: number | null = null;
 
-    for (const [k, v] of Object.entries(new_inputs)) {
+    for (const new_input_key in new_inputs) {
+        const k = new_input_key as keyof Inputs;
+        const v = new_inputs[k];
+
         if (inputs[k] === v) {
             continue;
         }
 
         let default_value;
         let param;
-        let param_value;
+        let param_value: string;
 
         switch (k) {
-            case INPUT_QUERY_STRING: {
+            case 'query_string': {
                 param = 'q';
                 default_value = DEFAULT_QUERY_STRING;
-                param_value = v;
-                ui.query_el.value = v;
+                param_value = String(v);
+                ui.query_el.value = param_value;
                 break;
             }
-            case INPUT_POOL: {
+            case 'pool': {
                 param = 'p';
                 default_value = DEFAULT_POOL;
-                param_value = v;
-                ui.pool_el.value = v;
+                param_value = String(v);
+                ui.pool_el.value = param_value;
                 break;
             }
-            case INPUT_SORT_ORDER: {
+            case 'sort_order': {
                 param = 'o';
                 default_value = DEFAULT_SORT_ORDER;
-                param_value = v;
-                ui.sort_order_el.value = v;
+                param_value = String(v);
+                ui.sort_order_el.value = param_value;
                 break;
             }
-            case INPUT_SORT_ASC: {
+            case 'sort_asc': {
                 param = 'd';
                 default_value = DEFAULT_SORT_ASC;
                 param_value = v ? 'a' : 'd';
                 (v ? ui.sort_dir_asc_el : ui.sort_dir_desc_el).checked = true;
                 break;
             }
-            case INPUT_START_POS: {
+            case 'start_pos': {
                 param = 's';
                 default_value = DEFAULT_START_POS;
-                param_value = v;
+                param_value = String(v);
                 break;
             }
             default:
                 throw Error(`Invalid input property ${k}.`);
         }
 
-        inputs[k] = v;
+        (inputs[k] as any) = v;
 
         if (update_url) {
+            assert(params !== null);
+
             if (v === default_value) {
                 params.delete(param);
             } else {
@@ -466,8 +467,8 @@ async function set_inputs_internal(new_inputs, params, update_url, force_filter)
 
         // If a start pos is given, set the start position. Otherwise, if any other input is
         // changed, reset the start position.
-        if (k === INPUT_START_POS) {
-            start_pos = v;
+        if (k === 'start_pos') {
+            start_pos = v as number;
         } else if (start_pos === null) {
             start_pos = DEFAULT_START_POS;
         }
@@ -475,22 +476,26 @@ async function set_inputs_internal(new_inputs, params, update_url, force_filter)
 
     if (any_changed) {
         if (start_pos !== null) {
-            inputs[INPUT_START_POS] = start_pos;
+            inputs.start_pos = start_pos;
 
             if (update_url) {
+                assert(params !== null);
+
                 if (start_pos === DEFAULT_START_POS) {
                     params.delete('s');
                 } else {
-                    params.set('s', start_pos);
+                    params.set('s', String(start_pos));
                 }
             }
         }
 
         if (update_url) {
+            assert(params !== null);
+
             const new_search = params.size ? `?${params}` : '';
 
             if (window.location.search !== new_search) {
-                window.history.pushState(null, null, `/${new_search}`);
+                window.history.pushState(null, '', `/${new_search}`);
             }
         }
     }
@@ -500,24 +505,34 @@ async function set_inputs_internal(new_inputs, params, update_url, force_filter)
     }
 }
 
-function get_params() {
+function get_params(): URLSearchParams {
     return new URLSearchParams(window.location.search);
 }
 
-function assert(condition, message) {
+function assert(condition: boolean, message?: () => string): asserts condition {
     if (!condition) {
         throw Error(message ? message() : 'Assertion failed.');
     }
 }
 
-function assert_eq(value, expected) {
+function assert_eq<T>(value: T, expected: T) {
     assert(
         deep_eq(value, expected),
         () => `Value ${to_string(value)} did not match expected ${to_string(expected)}.`
     );
 }
 
-const Nop_Logger = {
+interface Logger {
+    log(...args: any[]): void;
+    info(...args: any[]): void;
+    error(...args: any[]): void;
+    group(...args: any[]): void;
+    group_end(): void;
+    time(...args: any[]): void;
+    time_end(...args: any[]): void;
+}
+
+const Nop_Logger: Logger = {
     log() { },
     info() { },
     error() { },
@@ -527,46 +542,46 @@ const Nop_Logger = {
     time_end() { },
 };
 
-const Console_Logger = {
-    log(...args) { console.log(...args); },
-    info(...args) { console.info(...args); },
-    error(...args) { console.error(...args); },
-    group(...args) { console.group(...args); },
-    group_end(...args) { console.groupEnd(...args); },
-    time(...args) { console.time(...args); },
-    time_end(...args) { console.timeEnd(...args); },
+const Console_Logger: Logger = {
+    log(...args: any[]) { console.log(...args); },
+    info(...args: any[]) { console.info(...args); },
+    error(...args: any[]) { console.error(...args); },
+    group(...args: any[]) { console.group(...args); },
+    group_end() { console.groupEnd(); },
+    time(...args: any[]) { console.time(...args); },
+    time_end(...args: any[]) { console.timeEnd(...args); },
 };
 
-class Mem_Logger {
-    messages = [];
+class Mem_Logger implements Logger {
+    private messages: { level: keyof Logger, args: any[] }[] = [];
 
-    log(...args) { this.message('log', ...args); }
-    info(...args) { this.message('info', ...args); }
-    error(...args) { this.message('error', ...args); }
-    group(...args) { this.message('group', ...args); }
-    group_end(...args) { this.message('group_end', ...args); }
-    time(...args) { this.message('time', ...args); }
-    time_end(...args) { this.message('time_end', ...args); }
+    log(...args: any[]) { this.message('log', ...args); }
+    info(...args: any[]) { this.message('info', ...args); }
+    error(...args: any[]) { this.message('error', ...args); }
+    group(...args: any[]) { this.message('group', ...args); }
+    group_end() { this.message('group_end'); }
+    time(...args: any[]) { this.message('time', ...args); }
+    time_end(...args: any[]) { this.message('time_end', ...args); }
 
-    message(level, ...args) {
+    private message(level: keyof Logger, ...args: any[]) {
         this.messages.push({ level, args });
     }
 
-    log_to(logger) {
+    log_to(logger: Logger) {
         for (const message of this.messages) {
-            logger[message.level](...message.args);
+            (logger[message.level] as (...args: any[]) => void)(...message.args);
         }
     }
 }
 
-async function filter(logger) {
+async function filter(logger: Logger) {
     logger.info('Filtering cards.');
     logger.time('filter');
 
     // Try to avoid showing "Loading..." when the user opens the app, as it makes you think you
     // can't filter cards yet.
-    if (static.cards.length === null
-        && inputs[INPUT_QUERY_STRING] !== ''
+    if (data.cards.length === null
+        && inputs.query_string !== ''
         && ui.result_summary_el.innerHTML === ''
     ) {
         ui.result_summary_el.innerHTML = 'Loading...';
@@ -574,43 +589,43 @@ async function filter(logger) {
 
     logger.time('filter_parse_query');
 
-    const user_query = parse_query(inputs[INPUT_QUERY_STRING]);
+    const user_query: Query = parse_query(inputs.query_string);
 
     logger.time_end('filter_parse_query');
 
-    const query = combine_queries_with_conjunction(user_query, POOLS[inputs.pool]);
-    logger.log('query string', inputs[INPUT_QUERY_STRING], 'user query', user_query, 'final query', query);
+    const query: Query = combine_queries_with_conjunction(user_query, POOLS[inputs.pool]);
+    logger.log('query string', inputs.query_string, 'user query', user_query, 'final query', query);
 
     result = await find_cards_matching_query(
         query,
-        inputs[INPUT_SORT_ORDER],
-        inputs[INPUT_SORT_ASC],
+        inputs.sort_order,
+        inputs.sort_asc,
         logger,
         () => Nop_Logger,
     );
 
     const frag = document.createDocumentFragment();
-    let start_pos = inputs[INPUT_START_POS];
+    let start_pos = inputs.start_pos;
     let start_idx = start_pos - 1;
 
     if (start_idx >= result.length && result.length > 0) {
         start_idx = Math.floor((result.length - 1) / MAX_CARDS) * MAX_CARDS;
         start_pos = start_idx + 1;
-        inputs[INPUT_START_POS] = start_pos;
+        inputs.start_pos = start_pos;
     }
 
     const view_result = result.cards.slice(start_idx, start_idx + MAX_CARDS);
     const end_pos = start_idx + view_result.length;
 
     for (const card_idx of view_result) {
-        const a = el('a');
+        const a: HTMLAnchorElement = el('a');
         a.className = 'card';
-        a.href = static.cards.scryfall_url(card_idx) ?? '';
+        a.href = data.cards.scryfall_url(card_idx) ?? '';
         a.target = '_blank';
 
-        const img = el('img');
+        const img: HTMLImageElement = el('img');
         img.loading = 'lazy';
-        img.src = static.cards.image_url(card_idx) ?? '';
+        img.src = data.cards.image_url(card_idx) ?? '';
         a.append(img);
 
         frag.append(a);
@@ -625,7 +640,7 @@ async function filter(logger) {
     ui.result_cards_el.scroll(0, 0);
     ui.result_cards_el.append(frag);
 
-    const at_first_page = static.cards.length === null || start_pos === 1;
+    const at_first_page = data.cards.length === null || start_pos === 1;
     const at_last_page = start_pos >= result.length - MAX_CARDS + 1
     ui.result_prev_el.disabled = at_first_page;
     ui.result_next_el.disabled = at_last_page;
@@ -635,18 +650,18 @@ async function filter(logger) {
     logger.time_end('filter');
 }
 
-function combine_queries_with_conjunction(...args) {
+function combine_queries_with_conjunction(...args: Query[]): Query {
     assert(args.length >= 1);
 
-    const props = new Set();
-    const conditions = [];
+    const props = new Set<Prop>();
+    const conditions: Condition[] = [];
 
     for (const query of args) {
         switch (query.condition.type) {
-            case TYPE_TRUE:
+            case 'true':
                 // Has no effect on conjunction.
                 continue;
-            case TYPE_AND:
+            case 'and':
                 conditions.push(...query.condition.conditions);
                 break;
             default:
@@ -661,7 +676,7 @@ function combine_queries_with_conjunction(...args) {
 
     if (conditions.length === 0) {
         // All were true.
-        assert_eq(args[0].condition.type, TYPE_TRUE);
+        assert_eq(args[0].condition.type, 'true');
         return args[0];
     }
 
@@ -675,28 +690,84 @@ function combine_queries_with_conjunction(...args) {
     return {
         props: [...props],
         condition: {
-            type: TYPE_AND,
+            type: 'and',
             conditions,
         }
     };
 }
 
-function parse_query(query_string) {
+type Query = {
+    props: Prop[],
+    condition: Condition,
+};
+
+type Condition =
+    Negation_Condition |
+    Disjunction_Condition |
+    Conjunction_Condition |
+    True_Condition |
+    Comparison_Condition |
+    Substring_Condition |
+    Predicate_Condition;
+
+type Negation_Condition = {
+    type: 'not',
+    condition: Condition,
+}
+
+type Disjunction_Condition = {
+    type: 'or',
+    conditions: Condition[],
+}
+
+type Conjunction_Condition = {
+    type: 'and',
+    conditions: Condition[],
+}
+
+type True_Condition = {
+    type: 'true',
+}
+
+type Comparison_Condition = {
+    type: 'eq' | 'ne' | 'lt' | 'gt' | 'le' | 'ge',
+    prop: Prop,
+    value: number | string | Mana_Cost,
+}
+
+type Substring_Condition = {
+    type: 'substring',
+    prop: Prop,
+    value: string,
+}
+
+type Predicate_Condition = {
+    type: 'even' | 'odd',
+    prop: Prop,
+}
+
+function parse_query(query_string: string): Query {
     return new Query_Parser().parse(query_string);
 }
 
+type Operator = ':' | '=' | '!=' | '<' | '>' | '<=' | '>=';
+
 class Query_Parser {
-    parse(query_string) {
+    private query_string = '';
+    private pos = 0;
+    private props = new Set<Prop>();
+
+    parse(query_string: string): Query {
         this.query_string = query_string;
         this.pos = 0;
         this.props = new Set();
 
-        let condition = this.parse_disjunction();
+        let condition: Condition | false | null = this.parse_disjunction();
 
         if (condition === false || this.chars_left()) {
-            condition = { type: TYPE_NOT, condition: { type: TYPE_TRUE } };
+            condition = { type: 'not', condition: { type: 'true' } };
         } else if (condition === null) {
-            condition = { type: TYPE_TRUE };
+            condition = { type: 'true' };
         }
 
         return {
@@ -705,15 +776,15 @@ class Query_Parser {
         };
     }
 
-    chars_left() {
+    chars_left(): boolean {
         return this.pos < this.query_string.length;
     }
 
-    char() {
+    char(): string {
         return this.query_string[this.pos];
     }
 
-    is_boundary() {
+    is_boundary(): boolean {
         if (!this.chars_left()) {
             return true;
         }
@@ -729,7 +800,7 @@ class Query_Parser {
         }
     }
 
-    parse_disjunction() {
+    parse_disjunction(): Condition | false | null {
         const conditions = [];
 
         while (this.chars_left()) {
@@ -752,7 +823,7 @@ class Query_Parser {
                 continue;
             }
 
-            if (condition.type === TYPE_OR) {
+            if (condition.type === 'or') {
                 conditions.push(...condition.conditions);
             } else {
                 conditions.push(condition);
@@ -768,12 +839,12 @@ class Query_Parser {
         }
 
         return {
-            type: TYPE_OR,
+            type: 'or',
             conditions,
         };
     }
 
-    parse_conjunction() {
+    parse_conjunction(): Condition | false | null {
         const conditions = [];
 
         while (this.chars_left()) {
@@ -808,7 +879,7 @@ class Query_Parser {
                 continue;
             }
 
-            if (condition.type === TYPE_AND) {
+            if (condition.type === 'and') {
                 conditions.push(...condition.conditions);
             } else {
                 conditions.push(condition);
@@ -824,12 +895,12 @@ class Query_Parser {
         }
 
         return {
-            type: TYPE_AND,
+            type: 'and',
             conditions,
         };
     }
 
-    parse_condition() {
+    parse_condition(): Condition | false | null {
         if (this.char() === '(') {
             this.pos++;
             const result = this.parse_disjunction();
@@ -851,18 +922,24 @@ class Query_Parser {
         }
 
         const start_pos = this.pos;
-        const [keyword, operator] = this.parse_keyword_and_operator();
+        const keyword_and_operator = this.parse_keyword_and_operator();
+
+        if (keyword_and_operator === null) {
+            return this.parse_name_cond();
+        }
+
+        const { keyword, operator } = keyword_and_operator;
         let result = null;
 
         switch (keyword) {
             case 'color':
             case 'c':
-                result = this.parse_color_or_id_cond(operator, TYPE_GE, PROP_COLOR);
+                result = this.parse_color_or_id_cond(operator, 'ge', 'colors');
                 break;
 
             case 'identity':
             case 'id':
-                result = this.parse_color_or_id_cond(operator, TYPE_LE, PROP_IDENTITY);
+                result = this.parse_color_or_id_cond(operator, 'le', 'identity');
                 break;
 
             case 'format':
@@ -914,7 +991,7 @@ class Query_Parser {
         return result;
     }
 
-    parse_negation() {
+    parse_negation(): Condition | false {
         this.pos++;
 
         const condition = this.parse_condition();
@@ -923,21 +1000,21 @@ class Query_Parser {
             return false;
         }
 
-        if (condition?.type === TYPE_NOT) {
+        if (condition?.type === 'not') {
             return condition.condition;
         }
 
         return {
-            type: TYPE_NOT,
-            condition: condition ?? { type: TYPE_TRUE },
+            type: 'not',
+            condition: condition ?? { type: 'true' },
         };
     }
 
-    parse_keyword_and_operator() {
+    parse_keyword_and_operator(): { keyword: string, operator: Operator } | null {
         const start_pos = this.pos;
 
         outer: while (!this.is_boundary()) {
-            for (const operator of [':', '=', '!=', '>=', '<=', '>', '<']) {
+            for (const operator of Array<Operator>(':', '=', '!=', '<=', '>=', '<', '>')) {
                 if (this.query_string.startsWith(operator, this.pos)) {
                     this.pos += operator.length;
 
@@ -947,10 +1024,10 @@ class Query_Parser {
 
                     const keyword = this.query_string.slice(start_pos, this.pos - operator.length);
 
-                    return [
-                        keyword.toLocaleLowerCase('en'),
+                    return {
+                        keyword: keyword.toLocaleLowerCase('en'),
                         operator,
-                    ];
+                    };
                 }
             }
 
@@ -958,12 +1035,16 @@ class Query_Parser {
         }
 
         this.pos = start_pos;
-        return [null, null];
+        return null;
     }
 
-    parse_color_or_id_cond(operator, colon_type, prop) {
+    parse_color_or_id_cond(
+        operator: Operator,
+        colon_type: 'le' | 'ge',
+        prop: Prop,
+    ): Comparison_Condition | null {
         const value_string = this.parse_word().toLocaleLowerCase('en');
-        let value = null;
+        let value: Mana_Cost | null = null;
 
         switch (value_string) {
             case 'colorless':
@@ -1097,59 +1178,59 @@ class Query_Parser {
 
         assert(value !== null);
 
-        return this.prop_cond(
-            this.operator_to_type(operator, colon_type),
+        return this.add_prop({
+            type: this.operator_to_type(operator, colon_type),
             prop,
             value,
-        );
+        });
     }
 
-    parse_format_cond(operator) {
+    parse_format_cond(operator: Operator): Comparison_Condition | null {
         if (operator !== ':' && operator !== '=') {
             return null;
         }
 
         const value = this.parse_word().toLocaleLowerCase('en');
 
-        return this.prop_cond(
-            TYPE_EQ,
-            PROP_FORMAT,
+        return this.add_prop({
+            type: 'eq',
+            prop: 'formats',
             value,
-        );
+        });
     }
 
-    parse_mana_cost_cond(operator) {
-        const [symbols, len] = parse_mana_cost(this.query_string, this.pos);
+    parse_mana_cost_cond(operator: Operator): Comparison_Condition | null {
+        const { cost, len } = parse_mana_cost(this.query_string, this.pos);
 
-        if (Object.keys(symbols).length === 0) {
+        if (Object.keys(cost).length === 0) {
             return null;
         }
 
         this.pos += len;
 
-        return this.prop_cond(
-            this.operator_to_type(operator, TYPE_GE),
-            PROP_MANA_COST,
-            symbols,
-        );
+        return this.add_prop({
+            type: this.operator_to_type(operator, 'ge'),
+            prop: 'cost',
+            value: cost,
+        });
     }
 
-    parse_mana_value_cond(operator) {
+    parse_mana_value_cond(operator: Operator): Comparison_Condition | Predicate_Condition | null {
         const value_string = this.parse_word().toLocaleLowerCase('en');
 
         if (operator === ':' || operator === '=') {
             if (value_string === 'even') {
-                return this.prop_cond(
-                    TYPE_EVEN,
-                    PROP_MANA_VALUE,
-                );
+                return this.add_prop({
+                    type: 'even',
+                    prop: 'cmc',
+                });
             }
 
             if (value_string === 'odd') {
-                return this.prop_cond(
-                    TYPE_ODD,
-                    PROP_MANA_VALUE,
-                );
+                return this.add_prop({
+                    type: 'odd',
+                    prop: 'cmc',
+                });
             }
         }
 
@@ -1159,23 +1240,23 @@ class Query_Parser {
             return null;
         }
 
-        return this.prop_cond(
-            this.operator_to_type(operator, TYPE_EQ),
-            PROP_MANA_VALUE,
+        return this.add_prop({
+            type: this.operator_to_type(operator, 'eq'),
+            prop: 'cmc',
             value,
-        );
+        });
     }
 
-    parse_name_cond() {
-        const [value, quoted] = this.parse_string();
+    parse_name_cond(): Condition | null {
+        const { value, quoted } = this.parse_string();
         const value_lc = value.toLocaleLowerCase('en');
 
         if (quoted) {
-            return this.prop_cond(
-                TYPE_SUBSTRING,
-                PROP_NAME_SEARCH,
-                value_lc,
-            );
+            return this.add_prop({
+                type: 'substring',
+                prop: 'name_search',
+                value: value_lc,
+            });
         } else {
             // We're just mimicking SF behavior here...
             const conditions = [];
@@ -1184,11 +1265,11 @@ class Query_Parser {
                 const part_stripped = part.replace(INEXACT_REGEX, '');
 
                 if (part_stripped.length > 0) {
-                    conditions.push(this.prop_cond(
-                        TYPE_SUBSTRING,
-                        PROP_NAME_INEXACT,
-                        part_stripped,
-                    ));
+                    conditions.push(this.add_prop({
+                        type: 'substring',
+                        prop: 'name_inexact',
+                        value: part_stripped,
+                    }));
                 }
             }
 
@@ -1201,31 +1282,31 @@ class Query_Parser {
             }
 
             return {
-                type: TYPE_AND,
+                type: 'and',
                 conditions,
             };
         }
     }
 
-    parse_oracle_cond(operator) {
+    parse_oracle_cond(operator: Operator): Substring_Condition | null {
         if (operator !== ':' && operator !== '=') {
             return null;
         }
 
-        const [value] = this.parse_string();
+        const { value } = this.parse_string();
 
         if (value.length === 0) {
             return null;
         }
 
-        return this.prop_cond(
-            TYPE_SUBSTRING,
-            PROP_ORACLE_TEXT_SEARCH,
-            value.toLocaleLowerCase('en'),
-        );
+        return this.add_prop({
+            type: 'substring',
+            prop: 'oracle_search',
+            value: value.toLocaleLowerCase('en'),
+        });
     }
 
-    parse_set_cond(operator) {
+    parse_set_cond(operator: Operator): Comparison_Condition | null {
         const start_pos = this.pos;
         let value = this.parse_word().toLocaleLowerCase('en');
 
@@ -1234,22 +1315,23 @@ class Query_Parser {
             return null;
         }
 
-        return this.prop_cond(
-            this.operator_to_type(operator, TYPE_EQ),
-            PROP_SET,
+        return this.add_prop({
+            type: this.operator_to_type(operator, 'eq'),
+            prop: 'sets',
             value,
-        );
+        });
     }
 
-    parse_rarity_cond(operator) {
+    private parse_rarity_cond(operator: Operator): Comparison_Condition | null {
         const start_pos = this.pos;
-        let value = this.parse_regex(/common|uncommon|rare|mythic|special|bonus|[curmsb]/iy)
-            .toLocaleLowerCase('en');
+        let value = this.parse_regex(/common|uncommon|rare|mythic|special|bonus|[curmsb]/iy);
 
-        if (!this.is_boundary()) {
+        if (value === null || !this.is_boundary()) {
             this.pos = start_pos;
             return null;
         }
+
+        value = value.toLocaleLowerCase('en');
 
         switch (value) {
             case 'c':
@@ -1272,32 +1354,32 @@ class Query_Parser {
                 break;
         }
 
-        return this.prop_cond(
-            this.operator_to_type(operator, TYPE_EQ),
-            PROP_RARITY,
+        return this.add_prop({
+            type: this.operator_to_type(operator, 'eq'),
+            prop: 'rarities',
             value,
-        );
+        });
     }
 
-    parse_type_cond(operator) {
+    private parse_type_cond(operator: Operator): Substring_Condition | null {
         if (operator !== ':' && operator !== '=') {
             return null;
         }
 
-        const [value] = this.parse_string();
+        const { value } = this.parse_string();
 
         if (value.length === 0) {
             return null;
         }
 
-        return this.prop_cond(
-            TYPE_SUBSTRING,
-            PROP_TYPE_SEARCH,
-            value.toLocaleLowerCase('en'),
-        );
+        return this.add_prop({
+            type: 'substring',
+            prop: 'type_search',
+            value: value.toLocaleLowerCase('en'),
+        });
     }
 
-    parse_string() {
+    private parse_string(): { value: string, quoted: boolean } {
         switch (this.char()) {
             case '"':
             case "'": {
@@ -1306,17 +1388,17 @@ class Query_Parser {
                 if (end !== -1) {
                     const start_pos = this.pos + 1;
                     this.pos = end + 1;
-                    return [this.query_string.slice(start_pos, this.pos - 1), true];
+                    return { value: this.query_string.slice(start_pos, this.pos - 1), quoted: true };
                 }
 
-                // Fall through switch.
+                break;
             }
         }
 
-        return [this.parse_word(), false];
+        return { value: this.parse_word(), quoted: false };
     }
 
-    parse_word() {
+    private parse_word(): string {
         const start_pos = this.pos;
 
         while (!this.is_boundary()) {
@@ -1326,7 +1408,7 @@ class Query_Parser {
         return this.query_string.slice(start_pos, this.pos);
     }
 
-    parse_regex(regex) {
+    private parse_regex(regex: RegExp): string | null {
         assert(regex.sticky, () => `Regex "${regex.source}" should be sticky.`);
 
         regex.lastIndex = this.pos;
@@ -1340,45 +1422,41 @@ class Query_Parser {
         return m[0];
     }
 
-    operator_to_type(operator, colon_type) {
+    private operator_to_type<T extends Condition['type']>(
+        operator: Operator,
+        colon_type: T,
+    ): T | 'eq' | 'ne' | 'lt' | 'gt' | 'le' | 'ge' {
         switch (operator) {
             case ':':
                 return colon_type;
             case '=':
-                return TYPE_EQ;
+                return 'eq';
             case '!=':
-                return TYPE_NE;
-            case '>':
-                return TYPE_GT;
+                return 'ne';
             case '<':
-                return TYPE_LT;
-            case '>=':
-                return TYPE_GE;
+                return 'lt';
+            case '>':
+                return 'gt';
             case '<=':
-                return TYPE_LE;
+                return 'le';
+            case '>=':
+                return 'ge';
             default:
                 throw Error(`Unknown operator "${operator}".`);
         }
     }
 
-    prop_cond(type, prop, value) {
-        const cond = {
-            type,
-            prop,
-        };
-
-        if (value !== undefined) {
-            cond.value = value;
-        }
-
-        this.props.add(prop);
+    private add_prop<T extends Condition & { prop: Prop }>(cond: T): T {
+        this.props.add(cond.prop);
         return cond;
     }
 }
 
-function parse_mana_cost(input, start = 0) {
+type Mana_Cost = { [K: string]: number };
+
+function parse_mana_cost(input: string, start = 0): { cost: Mana_Cost, len: number } {
     let pos = start;
-    const symbols = {};
+    const cost: Mana_Cost = {};
 
     for (; ;) {
         const result = parse_mana_symbol(input, pos);
@@ -1387,15 +1465,18 @@ function parse_mana_cost(input, start = 0) {
             break;
         }
 
-        const [{ symbol, generic }, len] = result;
-        symbols[symbol] = (symbols[symbol] ?? 0) + (generic ?? 1);
+        const { symbol, generic, len } = result;
+        cost[symbol] = (cost[symbol] ?? 0) + (generic ?? 1);
         pos += len;
     }
 
-    return [symbols, pos - start];
+    return { cost, len: pos - start };
 }
 
-function parse_mana_symbol(input, start) {
+function parse_mana_symbol(
+    input: string,
+    start: number,
+): { symbol: string, generic: number | null, len: number } | null {
     let pos = start;
     const initial_regex = /([WUBRGCXS]|\d+)/iy;
     initial_regex.lastIndex = pos;
@@ -1403,7 +1484,7 @@ function parse_mana_symbol(input, start) {
 
     if (initial_match !== null) {
         const symbol_or_generic = initial_match[0].toLocaleUpperCase('en');
-        let generic = parseInt(symbol_or_generic, 10);
+        let generic: number | null = parseInt(symbol_or_generic, 10);
 
         if (isNaN(generic)) {
             generic = null;
@@ -1411,7 +1492,7 @@ function parse_mana_symbol(input, start) {
 
         const symbol = generic === null ? symbol_or_generic : MANA_GENERIC;
 
-        return [{ symbol, generic }, initial_match[0].length];
+        return { symbol, generic, len: initial_match[0].length };
     }
 
     if (input[pos] !== '{') {
@@ -1432,7 +1513,7 @@ function parse_mana_symbol(input, start) {
 
         pos += match[0].length;
         const symbol_or_generic = match[0].toLocaleUpperCase('en');
-        let generic = parseInt(symbol_or_generic, 10);
+        let generic: number | null = parseInt(symbol_or_generic, 10);
 
         if (isNaN(generic)) {
             generic = null;
@@ -1510,14 +1591,12 @@ function parse_mana_symbol(input, start) {
         }
     } else if (symbols.has(MANA_GENERIC_X)) {
         if (symbols.size !== 1) {
-            this.pos = start_pos;
             return null;
         }
 
         str += MANA_GENERIC_X;
     } else if (symbols.has(MANA_SNOW)) {
         if (symbols.size !== 1) {
-            this.pos = start_pos;
             return null;
         }
 
@@ -1601,10 +1680,10 @@ function parse_mana_symbol(input, start) {
         }
     }
 
-    return [{ symbol: str, generic }, pos - start];
+    return { symbol: str, generic, len: pos - start };
 }
 
-function mana_cost_eq(a, b, logger) {
+function mana_cost_eq(a: Mana_Cost, b: Mana_Cost, logger: Logger): boolean {
     if (Object.keys(a).length !== Object.keys(b).length) {
         return false;
     }
@@ -1626,7 +1705,12 @@ function mana_cost_eq(a, b, logger) {
     return true;
 }
 
-function mana_cost_is_super_set(a, b, strict, logger) {
+function mana_cost_is_super_set(
+    a: Mana_Cost,
+    b: Mana_Cost,
+    strict: boolean,
+    logger: Logger,
+): boolean {
     let a_symbols = Object.keys(a).length;
     const b_symbols = Object.keys(b).length;
 
@@ -1672,7 +1756,13 @@ function mana_cost_is_super_set(a, b, strict, logger) {
     }
 }
 
-async function find_cards_matching_query(query, sort_order, sort_asc, logger, card_logger) {
+async function find_cards_matching_query(
+    query: Query,
+    sort_order: Sort_Order,
+    sort_asc: boolean,
+    logger: Logger,
+    card_logger: (idx: number) => Logger,
+): Promise<{ cards: number[], length: number }> {
     logger.time('find_cards_matching_query');
     logger.log('query', query);
     logger.time('find_cards_matching_query_load');
@@ -1684,15 +1774,15 @@ async function find_cards_matching_query(query, sort_order, sort_asc, logger, ca
     const required_for_display_promises = [];
 
     for (const prop of query.props) {
-        required_for_query_promises.push(static.cards.load(prop));
+        required_for_query_promises.push(data.cards.load(prop));
     }
 
     if (sort_index !== null) {
-        required_for_query_promises.push(static.load_sort_indices());
+        required_for_query_promises.push(data.load_sort_indices());
     }
 
-    for (const prop of ['sfurl', 'img']) {
-        required_for_display_promises.push(static.cards.load(prop));
+    for (const prop of Array<Prop>('sfurl', 'img')) {
+        required_for_display_promises.push(data.cards.load(prop));
     }
 
     // Await data loads necessary for query.
@@ -1709,11 +1799,11 @@ async function find_cards_matching_query(query, sort_order, sort_asc, logger, ca
     logger.time_end('find_cards_matching_query_load');
     logger.time('find_cards_matching_query_execute');
 
-    const len = static.cards.length;
+    const len = data.cards.length ?? 0;
     let index_view = null;
 
-    if (sort_index !== null) {
-        const indices_view = new DataView(static.sort_indices);
+    if (sort_index !== null && data.sort_indices !== null) {
+        const indices_view = new DataView(data.sort_indices);
         const index_count = indices_view.getUint32(0, true);
 
         if (sort_index >= index_count) {
@@ -1726,7 +1816,7 @@ async function find_cards_matching_query(query, sort_order, sort_asc, logger, ca
                 ? indices_view.byteLength
                 : indices_view.getUint32(4 + 4 * (sort_index + 1), true);
             index_view = new DataView(
-                static.sort_indices,
+                data.sort_indices,
                 index_offset,
                 next_index_offset - index_offset,
             );
@@ -1799,8 +1889,8 @@ async function find_cards_matching_query(query, sort_order, sort_asc, logger, ca
     };
 }
 
-function matches_query(card_idx, query, logger) {
-    const name = static.cards.name(card_idx);
+function matches_query(card_idx: number, query: Query, logger: Logger): boolean {
+    const name = data.cards.name(card_idx);
     logger.log(`evaluating query with "${name}"`, card_idx);
 
     try {
@@ -1811,17 +1901,17 @@ function matches_query(card_idx, query, logger) {
 }
 
 /** Returns true if any face of the card matches the condition. */
-function matches_condition(card_idx, condition, logger) {
+function matches_condition(card_idx: number, condition: Condition, logger: Logger): boolean {
     logger.group(condition.type, condition);
 
     let result;
 
     switch (condition.type) {
-        case TYPE_TRUE: {
+        case 'true': {
             result = true;
             break;
         }
-        case TYPE_OR: {
+        case 'or': {
             result = false;
 
             for (const cond of condition.conditions) {
@@ -1833,7 +1923,7 @@ function matches_condition(card_idx, condition, logger) {
 
             break;
         }
-        case TYPE_AND: {
+        case 'and': {
             result = true;
 
             for (const cond of condition.conditions) {
@@ -1845,7 +1935,7 @@ function matches_condition(card_idx, condition, logger) {
 
             break;
         }
-        case TYPE_NOT: {
+        case 'not': {
             result = !matches_condition(card_idx, condition.condition, logger);
             break;
         }
@@ -1861,8 +1951,12 @@ function matches_condition(card_idx, condition, logger) {
     return result;
 }
 
-function matches_comparison_condition(card_idx, condition, logger) {
-    let values = static.cards.get(card_idx, condition.prop);
+function matches_comparison_condition(
+    card_idx: number,
+    condition: Comparison_Condition | Substring_Condition | Predicate_Condition,
+    logger: Logger,
+) {
+    let values = data.cards.get(card_idx, condition.prop);
 
     if (!Array.isArray(values)) {
         values = [values];
@@ -1870,9 +1964,9 @@ function matches_comparison_condition(card_idx, condition, logger) {
 
     logger.log('values', values);
 
-    if (condition.prop === PROP_COLOR
-        || condition.prop === PROP_IDENTITY
-        || condition.prop === PROP_MANA_COST
+    if (condition.prop === 'colors'
+        || condition.prop === 'identity'
+        || condition.prop === 'cost'
     ) {
         for (const value of values) {
             // Ignore non-existent values.
@@ -1880,26 +1974,27 @@ function matches_comparison_condition(card_idx, condition, logger) {
                 continue;
             }
 
+            const cond_value = (condition as Comparison_Condition).value as Mana_Cost;
             let result;
 
             switch (condition.type) {
-                case TYPE_EQ:
-                    result = mana_cost_eq(value, condition.value, logger);
+                case 'eq':
+                    result = mana_cost_eq(value, cond_value, logger);
                     break;
-                case TYPE_NE:
-                    result = !mana_cost_eq(value, condition.value, logger);
+                case 'ne':
+                    result = !mana_cost_eq(value, cond_value, logger);
                     break;
-                case TYPE_GT:
-                    result = mana_cost_is_super_set(value, condition.value, true, logger);
+                case 'gt':
+                    result = mana_cost_is_super_set(value, cond_value, true, logger);
                     break;
-                case TYPE_LT:
-                    result = mana_cost_is_super_set(condition.value, value, true, logger);
+                case 'lt':
+                    result = mana_cost_is_super_set(cond_value, value, true, logger);
                     break;
-                case TYPE_GE:
-                    result = mana_cost_is_super_set(value, condition.value, false, logger);
+                case 'ge':
+                    result = mana_cost_is_super_set(value, cond_value, false, logger);
                     break;
-                case TYPE_LE:
-                    result = mana_cost_is_super_set(condition.value, value, false, logger);
+                case 'le':
+                    result = mana_cost_is_super_set(cond_value, value, false, logger);
                     break;
                 default:
                     throw Error(
@@ -1912,11 +2007,11 @@ function matches_comparison_condition(card_idx, condition, logger) {
             }
         }
     } else {
-        let compare = null;
+        let compare: ((a: any, b: any) => number) | null = null;
 
         switch (condition.prop) {
-            case PROP_RARITY:
-                compare = (a, b) => RARITY_RANK[a] - RARITY_RANK[b];
+            case 'rarities':
+                compare = (a, b) => (RARITY_RANK as any)[a] - (RARITY_RANK as any)[b];
                 break;
             default:
                 compare = (a, b) => a - b;
@@ -1932,35 +2027,35 @@ function matches_comparison_condition(card_idx, condition, logger) {
             let result;
 
             switch (condition.type) {
-                case TYPE_EQ:
+                case 'eq':
                     result = value === condition.value;
                     break;
-                case TYPE_NE:
+                case 'ne':
                     result = value !== condition.value;
                     break;
-                case TYPE_GT:
+                case 'gt':
                     result = compare(value, condition.value) > 0;
                     break;
-                case TYPE_LT:
+                case 'lt':
                     result = compare(value, condition.value) < 0;
                     break;
-                case TYPE_GE:
+                case 'ge':
                     result = compare(value, condition.value) >= 0;
                     break;
-                case TYPE_LE:
+                case 'le':
                     result = compare(value, condition.value) <= 0;
                     break;
-                case TYPE_EVEN:
+                case 'even':
                     result = value % 2 === 0;
                     break;
-                case TYPE_ODD:
+                case 'odd':
                     result = value % 2 !== 0;
                     break;
-                case TYPE_SUBSTRING:
+                case 'substring':
                     result = value.includes(condition.value);
                     break;
                 default:
-                    throw Error(`Invalid condition type "${condition.type}".`);
+                    throw Error(`Invalid condition type "${(condition as Condition).type}".`);
             }
 
             if (result) {
@@ -1972,29 +2067,29 @@ function matches_comparison_condition(card_idx, condition, logger) {
     return false;
 }
 
-function get_el(query) {
+function get_el<T extends Element>(query: string): T {
     const element = document.querySelector(query);
 
     if (element === null) {
         throw Error(`No element found for query "${query}".`);
     }
 
-    return element;
+    return element as T;
 }
 
-function el(tagName) {
-    return document.createElement(tagName);
+function el<T extends HTMLElement>(tagName: string): T {
+    return document.createElement(tagName) as T;
 }
 
-function deep_eq(a, b) {
+function deep_eq<T>(a: T, b: T): boolean {
     if (a instanceof Set) {
-        return b instanceof Set && a.size == b.size && a.isSubsetOf(b);
+        return b instanceof Set && a.size === b.size && a.isSubsetOf(b);
     } else {
         return a === b;
     }
 }
 
-function to_string(object) {
+function to_string(object: any) {
     return JSON.stringify(object, (_k, v) => {
         if (v instanceof Set) {
             return [...v];
@@ -2007,13 +2102,13 @@ function to_string(object) {
 async function run_test_suite() {
     Console_Logger.time('run_test_suite');
 
-    const tests = [];
+    const tests: { name: string, execute: (logger: Logger) => Promise<void> }[] = [];
 
-    function test(name, execute) {
+    function test(name: string, execute: (logger: Logger) => Promise<void>) {
         tests.push({ name, execute });
     }
 
-    function test_query(name, query_string, expected_matches) {
+    function test_query(name: string, query_string: string, expected_matches: string[]) {
         const MAX_MATCHES = 20;
         const expected = new Set(expected_matches);
         assert(expected.size <= MAX_MATCHES);
@@ -2022,13 +2117,13 @@ async function run_test_suite() {
             const query = parse_query(query_string);
             const result = await find_cards_matching_query(
                 query,
-                PROP_NAME,
+                'name',
                 true,
                 Nop_Logger,
                 () => Nop_Logger,
             );
 
-            const actual = new Set(result.cards.map(idx => static.cards.name(idx)));
+            const actual = new Set(result.cards.map(idx => data.cards.name(idx)));
 
             if (expected.size !== result.length || !deep_eq(actual, expected)) {
                 const missing_set = expected.difference(actual);
@@ -2055,10 +2150,10 @@ async function run_test_suite() {
 
                 await find_cards_matching_query(
                     query,
-                    PROP_NAME,
+                    'name',
                     true,
                     logger,
-                    idx => (log_set.has(static.cards.name(idx)) ? logger : Nop_Logger),
+                    idx => (log_set.has(data.cards.name(idx)) ? logger : Nop_Logger),
                 );
 
                 throw Error(`Expected to get ${expected.size} matches, got ${result.length}. Missing: ${to_string(missing_set)}, unexpected (showing max. 5): ${to_string([...unexpected_set].slice(0, 5))}.`);

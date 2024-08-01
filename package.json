@@ -1,0 +1,16 @@
+{
+  "name": "mtgmeta",
+  "module": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "preprocess": "bun preprocess_cards.ts",
+    "dev": "bun dev_server.ts",
+    "bake": "bun bake.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

@@ -7,13 +7,13 @@ Install [Bun](https://bun.sh).
 ## Start Server
 
 ```sh
-dev_server
+bun dev
 ```
 
 ## Preprocess New Card Dumps
 
 ```sh
-preprocess_cards
+bun preprocess
 ```
 
 ## TODO
