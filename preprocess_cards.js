@@ -159,7 +159,7 @@ for (const prop of [
     'sfurl',
     'type',
 ]) {
-    Deno.writeTextFileSync(
+    Bun.write(
         `src/card_${prop}.json`,
         JSON.stringify(
             processed_cards.map(c => c[prop]),
@@ -168,7 +168,7 @@ for (const prop of [
     );
 }
 
-Deno.writeFileSync(
+Bun.write(
     'src/cards.idx',
     new Uint8Array(sort_indices, 0, sort_indices_len),
 );
@@ -194,19 +194,16 @@ async function get_card_data(sf_bulk_info, type) {
                 throw Error(`Computed filename looks wrong: ${filename}`);
             }
 
-            try {
-                const json = Deno.readTextFileSync(filename);
+            const file = Bun.file(filename);
+
+            if (await file.exists()) {
                 console.log(`Found a file named ${filename}, loading it.`);
-                return JSON.parse(json);
-            } catch (e) {
-                if (e.code === 'ENOENT') {
-                    console.log(`No file named ${filename}, downloading bulk data.`);
-                    const bulk_data = await (await fetch(data.download_uri)).json();
-                    Deno.writeTextFileSync(filename, JSON.stringify(bulk_data));
-                    return bulk_data;
-                } else {
-                    throw e;
-                }
+                return JSON.parse(await file.text());
+            } else {
+                console.log(`No file named ${filename}, downloading bulk data.`);
+                const bulk_data = await (await fetch(data.download_uri)).json();
+                Bun.write(filename, JSON.stringify(bulk_data));
+                return bulk_data;
             }
         }
     }

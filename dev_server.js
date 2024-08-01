@@ -1,17 +1,19 @@
-import { serveDir } from 'https://deno.land/std@0.140.0/http/file_server.ts';
+Bun.serve({
+    hostname: '0.0.0.0',
+    port: 8000,
 
-Deno.serve(
-    { hostname: '0.0.0.0' },
-    async req => {
-        if (new URL(req.url).pathname === '/') {
+    fetch(req) {
+        const url = new URL(req.url);
+
+        if (url.pathname === '/') {
             return new Response(
-                await Deno.readFile("src/index.html"),
+                Bun.file('src/index.html'),
                 {
                     headers: { 'content-type': 'text/html' }
                 },
             );
         }
 
-        return serveDir(req, { fsRoot: 'src' });
+        return new Response(Bun.file('src/' + url.pathname));
     },
-);
+});
