@@ -1,5 +1,9 @@
 # MTGMETA
 
+## Getting Started
+
+Install [Bun](https://bun.sh).
+
 ## Start Server
 
 ```sh
