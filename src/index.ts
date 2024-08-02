@@ -13,10 +13,13 @@ type Prop =
     'oracle' |
     'oracle_search' |
     'rarities' |
+    'released_at' |
     'sets' |
     'sfurl' |
     'type' |
     'type_search';
+
+const PER_VERSION_PROPS: Prop[] = ['released_at'];
 
 const MANA_WHITE = 'W';
 const MANA_BLUE = 'U';
@@ -150,6 +153,16 @@ const data = {
                             this.props.set((prop + '_search') as Prop, search_data);
                             break;
                         }
+
+                        case 'released_at': {
+                            for (const values of data) {
+                                for (let i = 0, len = values.length; i < len; i++) {
+                                    values[i] = new Date(values[i] + 'T00:00:00Z');
+                                }
+                            }
+
+                            break;
+                        }
                     }
 
                     this.props.set(prop, data);
@@ -162,12 +175,32 @@ const data = {
             return promise;
         },
 
-        get(idx: number, prop: Prop): any[] {
+        /** Returns the value or values of a card property. */
+        get<T>(idx: number, prop: Prop): T | null {
             return this.props.get(prop)?.at(idx) ?? null;
         },
 
+        /** Returns the value or values of a property for a specific version. */
+        get_for_version<T>(idx: number, version_idx: number, prop: Prop): T | null {
+            const value = this.props.get(prop)?.at(idx);
+
+            if (value == null) {
+                return null;
+            }
+
+            if (prop === 'released_at') {
+                return value[version_idx] ?? null;
+            } else {
+                return value;
+            }
+        },
+
+        version_count(idx: number): number | null {
+            return this.get<Date[]>(idx, 'released_at')?.length ?? null;
+        },
+
         name(idx: number): string | null {
-            const names = this.get(idx, 'name');
+            const names = this.get<string[]>(idx, 'name');
 
             if (names === null || names.length == 0) {
                 return null;
@@ -177,7 +210,7 @@ const data = {
         },
 
         scryfall_url(idx: number): string | null {
-            const sfurl = this.get(idx, 'sfurl');
+            const sfurl = this.get<string>(idx, 'sfurl');
 
             if (sfurl === null) {
                 return null;
@@ -187,13 +220,13 @@ const data = {
         },
 
         image_url(idx: number): string | null {
-            const img = this.get(idx, 'img')?.at(0);
+            const imgs = this.get<string[]>(idx, 'img');
 
-            if (img == null) {
+            if (imgs === null || imgs.length === 0) {
                 return null;
             }
 
-            return `https://cards.scryfall.io/normal/${img}`;
+            return `https://cards.scryfall.io/normal/${imgs[0]}`;
         },
     },
     sort_indices: null as ArrayBuffer | null,
@@ -379,9 +412,9 @@ async function set_inputs_from_params(params: URLSearchParams, force_filter: boo
     const start_pos_string = params.get('s');
 
     if (start_pos_string !== null) {
-        const start_pos = parseInt(start_pos_string, 10);
+        const start_pos = string_to_int(start_pos_string);
 
-        if (start_pos >= 1) {
+        if (start_pos !== null && start_pos >= 1) {
             new_inputs.start_pos = start_pos;
         } else {
             Console_Logger.error(`Invalid start position in URL: ${start_pos_string}`);
@@ -574,6 +607,14 @@ class Mem_Logger implements Logger {
     }
 }
 
+function string_to_int(s: string): number | null {
+    if (!/^-?\d+$/.test(s)) {
+        return null;
+    }
+
+    return parseInt(s, 10);
+}
+
 async function filter(logger: Logger) {
     logger.info('Filtering cards.');
     logger.time('filter');
@@ -708,7 +749,8 @@ type Condition =
     True_Condition |
     Comparison_Condition |
     Substring_Condition |
-    Predicate_Condition;
+    Predicate_Condition |
+    Range_Condition;
 
 type Negation_Condition = {
     type: 'not',
@@ -732,7 +774,7 @@ type True_Condition = {
 type Comparison_Condition = {
     type: 'eq' | 'ne' | 'lt' | 'gt' | 'le' | 'ge',
     prop: Prop,
-    value: number | string | Mana_Cost,
+    value: number | string | Date | Mana_Cost,
 }
 
 type Substring_Condition = {
@@ -744,6 +786,15 @@ type Substring_Condition = {
 type Predicate_Condition = {
     type: 'even' | 'odd',
     prop: Prop,
+}
+
+type Range_Condition = {
+    type: 'range',
+    prop: Prop,
+    start: Date,
+    start_inc: boolean,
+    end: Date,
+    end_inc: boolean,
 }
 
 function parse_query(query_string: string): Query {
@@ -942,6 +993,10 @@ class Query_Parser {
                 result = this.parse_color_or_id_cond(operator, 'le', 'identity');
                 break;
 
+            case 'date':
+                result = this.parse_date_cond(operator);
+                break;
+
             case 'format':
             case 'f':
                 result = this.parse_format_cond(operator);
@@ -980,6 +1035,10 @@ class Query_Parser {
             case 'type':
             case 't':
                 result = this.parse_type_cond(operator);
+                break;
+
+            case 'year':
+                result = this.parse_year_cond(operator);
                 break;
         }
 
@@ -1185,6 +1244,36 @@ class Query_Parser {
         });
     }
 
+    private parse_date_cond(operator: Operator): Comparison_Condition | null {
+        const start_pos = 0;
+        const match = this.parse_regex(/(\d{4})-(\d{2})-(\d{2})/y);
+
+        if (match === null) {
+            return null;
+        }
+
+        const [date_str, year_str, month_str, day_str] = match;
+
+        const date = new Date(date_str + 'T00:00:00Z');
+        const year = string_to_int(year_str) as number;
+        const month = string_to_int(month_str) as number;
+        const day = string_to_int(day_str) as number;
+
+        if (date.getFullYear() !== year
+            || date.getMonth() !== month - 1
+            || date.getDate() !== day
+        ) {
+            this.pos = start_pos;
+            return null;
+        }
+
+        return this.add_prop({
+            type: this.operator_to_type(operator, 'eq'),
+            prop: 'released_at',
+            value: date,
+        });
+    }
+
     private parse_format_cond(operator: Operator): Comparison_Condition | null {
         if (operator !== ':' && operator !== '=') {
             return null;
@@ -1234,9 +1323,9 @@ class Query_Parser {
             }
         }
 
-        const value = parseInt(value_string, 10);
+        const value = string_to_int(value_string);
 
-        if (isNaN(value)) {
+        if (value === null) {
             return null;
         }
 
@@ -1324,14 +1413,14 @@ class Query_Parser {
 
     private parse_rarity_cond(operator: Operator): Comparison_Condition | null {
         const start_pos = this.pos;
-        let value = this.parse_regex(/common|uncommon|rare|mythic|special|bonus|[curmsb]/iy);
+        let match = this.parse_regex(/common|uncommon|rare|mythic|special|bonus|[curmsb]/iy);
 
-        if (value === null || !this.is_boundary()) {
+        if (match === null || !this.is_boundary()) {
             this.pos = start_pos;
             return null;
         }
 
-        value = value.toLocaleLowerCase('en');
+        let value = match[0].toLocaleLowerCase('en');
 
         switch (value) {
             case 'c':
@@ -1379,6 +1468,51 @@ class Query_Parser {
         });
     }
 
+    private parse_year_cond(
+        operator: Operator,
+    ): Comparison_Condition | Range_Condition | null {
+        const start_pos = 0;
+        const year = string_to_int(this.parse_word());
+
+        if (year === null) {
+            this.pos = start_pos;
+            return null;
+        }
+
+        this.props.add('released_at');
+
+        const type = this.operator_to_type(operator, 'eq');
+        const date = new Date(0);
+        date.setFullYear(year);
+
+        if (type === 'eq' || type === 'ne') {
+            const end_date = new Date(0);
+            end_date.setFullYear(year);
+            end_date.setMonth(11);
+            end_date.setDate(31);
+
+            return {
+                type: 'range',
+                prop: 'released_at',
+                start: date,
+                start_inc: true,
+                end: end_date,
+                end_inc: true,
+            };
+        }
+
+        if (type === 'gt' || type === 'le') {
+            date.setMonth(11);
+            date.setDate(31);
+        }
+
+        return {
+            type,
+            prop: 'released_at',
+            value: date,
+        };
+    }
+
     private parse_string(): { value: string, quoted: boolean } {
         switch (this.char()) {
             case '"':
@@ -1408,7 +1542,7 @@ class Query_Parser {
         return this.query_string.slice(start_pos, this.pos);
     }
 
-    private parse_regex(regex: RegExp): string | null {
+    private parse_regex(regex: RegExp): RegExpExecArray | null {
         assert(regex.sticky, () => `Regex "${regex.source}" should be sticky.`);
 
         regex.lastIndex = this.pos;
@@ -1419,7 +1553,7 @@ class Query_Parser {
         }
 
         this.pos += m[0].length;
-        return m[0];
+        return m;
     }
 
     private operator_to_type<T extends Condition['type']>(
@@ -1484,14 +1618,8 @@ function parse_mana_symbol(
 
     if (initial_match !== null) {
         const symbol_or_generic = initial_match[0].toLocaleUpperCase('en');
-        let generic: number | null = parseInt(symbol_or_generic, 10);
-
-        if (isNaN(generic)) {
-            generic = null;
-        }
-
+        const generic = string_to_int(symbol_or_generic);
         const symbol = generic === null ? symbol_or_generic : MANA_GENERIC;
-
         return { symbol, generic, len: initial_match[0].length };
     }
 
@@ -1501,7 +1629,7 @@ function parse_mana_symbol(
 
     pos++;
     const regex = /([WUBRGCXSP]|\d+)/iy;
-    const symbols = new Map();
+    const symbols = new Map<string, number | null>();
 
     loop: for (; ;) {
         regex.lastIndex = pos;
@@ -1513,12 +1641,7 @@ function parse_mana_symbol(
 
         pos += match[0].length;
         const symbol_or_generic = match[0].toLocaleUpperCase('en');
-        let generic: number | null = parseInt(symbol_or_generic, 10);
-
-        if (isNaN(generic)) {
-            generic = null;
-        }
-
+        const generic = string_to_int(symbol_or_generic);
         const symbol = generic === null ? symbol_or_generic : MANA_GENERIC;
 
         if (symbols.has(symbol)) {
@@ -1890,181 +2013,220 @@ async function find_cards_matching_query(
 }
 
 function matches_query(card_idx: number, query: Query, logger: Logger): boolean {
-    const name = data.cards.name(card_idx);
-    logger.log(`evaluating query with "${name}"`, card_idx);
-
     try {
-        return matches_condition(card_idx, query.condition, logger);
+        return new Query_Evaluator().evaluate(query, card_idx, logger);
     } catch (e) {
         throw Error(`Couldn't evaluate query with "${name}".`, { cause: e });
     }
 }
 
-/** Returns true if any face of the card matches the condition. */
-function matches_condition(card_idx: number, condition: Condition, logger: Logger): boolean {
-    logger.group(condition.type, condition);
+class Query_Evaluator {
+    private card_idx: number = 0;
+    private logger: Logger = Nop_Logger;
 
-    let result;
+    evaluate(query: Query, card_idx: number, logger: Logger): boolean {
+        this.card_idx = card_idx;
+        this.logger = logger;
 
-    switch (condition.type) {
-        case 'true': {
-            result = true;
-            break;
-        }
-        case 'or': {
-            result = false;
+        const name = data.cards.name(card_idx);
+        logger.log(`evaluating query with "${name}"`, card_idx);
 
-            for (const cond of condition.conditions) {
-                if (matches_condition(card_idx, cond, logger)) {
-                    result = true;
-                    break;
-                }
+        const per_version = query.props.some(p => PER_VERSION_PROPS.includes(p));
+        const version_count = per_version ? data.cards.version_count(this.card_idx) : 1;
+        assert(version_count !== null);
+
+        for (let version_idx = 0; version_idx < version_count; version_idx++) {
+            if (this.evaluate_condition(query.condition, version_idx)) {
+                return true;
             }
+        }
 
-            break;
-        }
-        case 'and': {
-            result = true;
-
-            for (const cond of condition.conditions) {
-                if (!matches_condition(card_idx, cond, logger)) {
-                    result = false;
-                    break;
-                }
-            }
-
-            break;
-        }
-        case 'not': {
-            result = !matches_condition(card_idx, condition.condition, logger);
-            break;
-        }
-        default: {
-            result = matches_comparison_condition(card_idx, condition, logger);
-            break;
-        }
+        return false;
     }
 
-    logger.log('result', result);
-    logger.group_end();
+    /** Returns true if any face of the card matches the condition. */
+    private evaluate_condition(condition: Condition, version_idx: number): boolean {
+        this.logger.group(condition.type, condition);
 
-    return result;
-}
+        let result;
 
-function matches_comparison_condition(
-    card_idx: number,
-    condition: Comparison_Condition | Substring_Condition | Predicate_Condition,
-    logger: Logger,
-) {
-    let values = data.cards.get(card_idx, condition.prop);
+        switch (condition.type) {
+            case 'true': {
+                result = true;
+                break;
+            }
+            case 'or': {
+                result = false;
 
-    if (!Array.isArray(values)) {
-        values = [values];
+                for (const cond of condition.conditions) {
+                    if (this.evaluate_condition(cond, version_idx)) {
+                        result = true;
+                        break;
+                    }
+                }
+
+                break;
+            }
+            case 'and': {
+                result = true;
+
+                for (const cond of condition.conditions) {
+                    if (!this.evaluate_condition(cond, version_idx)) {
+                        result = false;
+                        break;
+                    }
+                }
+
+                break;
+            }
+            case 'not': {
+                result = !this.evaluate_condition(condition.condition, version_idx);
+                break;
+            }
+            default: {
+                result = this.evaluate_property_condition(condition, version_idx);
+                break;
+            }
+        }
+
+        this.logger.log('result', result);
+        this.logger.group_end();
+
+        return result;
     }
 
-    logger.log('values', values);
-
-    if (condition.prop === 'colors'
-        || condition.prop === 'identity'
-        || condition.prop === 'cost'
+    private evaluate_property_condition(
+        condition: Comparison_Condition | Substring_Condition | Predicate_Condition | Range_Condition,
+        version_idx: number,
     ) {
-        for (const value of values) {
-            // Ignore non-existent values.
-            if (value === null) {
-                continue;
-            }
+        let values: any = data.cards.get_for_version(this.card_idx, version_idx, condition.prop);
 
-            const cond_value = (condition as Comparison_Condition).value as Mana_Cost;
-            let result;
-
-            switch (condition.type) {
-                case 'eq':
-                    result = mana_cost_eq(value, cond_value, logger);
-                    break;
-                case 'ne':
-                    result = !mana_cost_eq(value, cond_value, logger);
-                    break;
-                case 'gt':
-                    result = mana_cost_is_super_set(value, cond_value, true, logger);
-                    break;
-                case 'lt':
-                    result = mana_cost_is_super_set(cond_value, value, true, logger);
-                    break;
-                case 'ge':
-                    result = mana_cost_is_super_set(value, cond_value, false, logger);
-                    break;
-                case 'le':
-                    result = mana_cost_is_super_set(cond_value, value, false, logger);
-                    break;
-                default:
-                    throw Error(
-                        `Invalid condition type "${condition.type}" for property "${condition.prop}".`
-                    );
-            }
-
-            if (result) {
-                return true;
-            }
+        if (!Array.isArray(values)) {
+            values = [values];
         }
-    } else {
-        let compare: ((a: any, b: any) => number) | null = null;
 
-        switch (condition.prop) {
-            case 'rarities':
+        this.logger.log('values', values);
+
+        if (condition.prop === 'colors'
+            || condition.prop === 'identity'
+            || condition.prop === 'cost'
+        ) {
+            for (const value of values) {
+                // Ignore non-existent values.
+                if (value === null) {
+                    continue;
+                }
+
+                const cond_value = (condition as Comparison_Condition).value as Mana_Cost;
+                let result;
+
+                switch (condition.type) {
+                    case 'eq':
+                        result = mana_cost_eq(value, cond_value, this.logger);
+                        break;
+                    case 'ne':
+                        result = !mana_cost_eq(value, cond_value, this.logger);
+                        break;
+                    case 'gt':
+                        result = mana_cost_is_super_set(value, cond_value, true, this.logger);
+                        break;
+                    case 'lt':
+                        result = mana_cost_is_super_set(cond_value, value, true, this.logger);
+                        break;
+                    case 'ge':
+                        result = mana_cost_is_super_set(value, cond_value, false, this.logger);
+                        break;
+                    case 'le':
+                        result = mana_cost_is_super_set(cond_value, value, false, this.logger);
+                        break;
+                    default:
+                        throw Error(
+                            `Invalid condition type "${condition.type}" for property "${condition.prop}".`
+                        );
+                }
+
+                if (result) {
+                    return true;
+                }
+            }
+        } else {
+            let eq: (a: any, b: any) => boolean = (a, b) => a === b;
+            let compare: (a: any, b: any) => number = (a, b) => a - b;
+
+            if (condition.prop === 'rarities') {
                 compare = (a, b) => (RARITY_RANK as any)[a] - (RARITY_RANK as any)[b];
-                break;
-            default:
-                compare = (a, b) => a - b;
-                break;
+            } else if (condition.prop === 'released_at') {
+                eq = (a, b) => a - b === 0
+            }
+
+            for (const value of values) {
+                // Ignore non-existent values.
+                if (value === null) {
+                    continue;
+                }
+
+                let result;
+
+                switch (condition.type) {
+                    case 'eq':
+                        result = eq(value, condition.value);
+                        break;
+                    case 'ne':
+                        result = !eq(value, condition.value);
+                        break;
+                    case 'gt':
+                        result = compare(value, condition.value) > 0;
+                        break;
+                    case 'lt':
+                        result = compare(value, condition.value) < 0;
+                        break;
+                    case 'ge':
+                        result = compare(value, condition.value) >= 0;
+                        break;
+                    case 'le':
+                        result = compare(value, condition.value) <= 0;
+                        break;
+                    case 'even':
+                        result = value % 2 === 0;
+                        break;
+                    case 'odd':
+                        result = value % 2 !== 0;
+                        break;
+                    case 'substring':
+                        result = value.includes(condition.value);
+                        break;
+                    case 'range': {
+                        const start_compare = compare(value, condition.start);
+
+                        if (start_compare < 0) {
+                            result = false;
+                            break;
+                        }
+
+                        const end_compare = compare(value, condition.end);
+
+                        if (end_compare > 0) {
+                            result = false;
+                            break;
+                        }
+
+                        result = (start_compare > 0 || condition.start_inc)
+                            && (end_compare < 0 || condition.end_inc);
+
+                        break;
+                    }
+                    default:
+                        throw Error(`Invalid condition type "${(condition as Condition).type}".`);
+                }
+
+                if (result) {
+                    return true;
+                }
+            }
         }
 
-        for (const value of values) {
-            // Ignore non-existent values.
-            if (value === null) {
-                continue;
-            }
-
-            let result;
-
-            switch (condition.type) {
-                case 'eq':
-                    result = value === condition.value;
-                    break;
-                case 'ne':
-                    result = value !== condition.value;
-                    break;
-                case 'gt':
-                    result = compare(value, condition.value) > 0;
-                    break;
-                case 'lt':
-                    result = compare(value, condition.value) < 0;
-                    break;
-                case 'ge':
-                    result = compare(value, condition.value) >= 0;
-                    break;
-                case 'le':
-                    result = compare(value, condition.value) <= 0;
-                    break;
-                case 'even':
-                    result = value % 2 === 0;
-                    break;
-                case 'odd':
-                    result = value % 2 !== 0;
-                    break;
-                case 'substring':
-                    result = value.includes(condition.value);
-                    break;
-                default:
-                    throw Error(`Invalid condition type "${(condition as Condition).type}".`);
-            }
-
-            if (result) {
-                return true;
-            }
-        }
+        return false;
     }
-
-    return false;
 }
 
 function get_el<E extends Element>(query: string): E {
@@ -2158,7 +2320,11 @@ async function run_test_suite() {
                     idx => (log_set.has(data.cards.name(idx)) ? logger : Nop_Logger),
                 );
 
-                throw Error(`Expected to get ${expected.size} matches, got ${result.length}. Missing: ${to_string(missing_set)}, unexpected (showing max. 5): ${to_string([...unexpected_set].slice(0, 5))}.`);
+                const max_warn = unexpected_set.size > 5 ? ' (showing max. 5)' : '';
+
+                throw Error(
+                    `Expected to get ${expected.size} matches, got ${result.length}. Also expected: ${to_string(missing_set)}, didn't expect: ${to_string([...unexpected_set].slice(0, 5))}${max_warn}.`
+                );
             }
         });
     }
@@ -2451,6 +2617,37 @@ async function run_test_suite() {
     );
 
     test_query(
+        'year=',
+        'year=2011 alloy',
+        ['Alloy Myr'],
+    );
+
+    // Same as =
+    test_query(
+        'year:',
+        'year:1999 about',
+        ['About Face'],
+    );
+
+    test_query(
+        'year<=',
+        'year<=2011 alloy',
+        ['Alloy Golem', 'Alloy Myr'],
+    );
+
+    test_query(
+        'year, conflicting',
+        'year>=2020 year<=2011 alloy',
+        [],
+    );
+
+    test_query(
+        'date:',
+        'date:1993-08-05 rec',
+        ['Ancestral Recall', 'Resurrection'],
+    );
+
+    test_query(
         'disjunction',
         'animate t:instant or abundance t:enchantment',
         ['Abundance', 'Animate Land', 'Leyline of Abundance', 'Overabundance', 'Trace of Abundance'],
@@ -2535,14 +2732,14 @@ async function run_test_suite() {
 
     const failed = executed - succeeded;
 
+    Console_Logger.time_end('run_test_suite');
+
     if (executed === succeeded) {
         Console_Logger.info(`Ran ${executed} tests, all succeeded.`);
     } else {
         Console_Logger.info(`Ran ${executed} tests, ${failed} failed.`);
         alert(`${failed} Tests failed!`);
     }
-
-    Console_Logger.time_end('run_test_suite');
 }
 
 if (document.body) {
