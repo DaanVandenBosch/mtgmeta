@@ -334,7 +334,7 @@ async function init() {
     ui.pool_el.onchange = () => set_inputs({ pool: ui.pool_el.value });
     ui.sort_order_el.onchange = () => {
         if (!(ui.sort_order_el.value in SORT_ORDER_TO_INDEX)) {
-            throw Error(`Invalid sort order "${ui.sort_order_el.value}" in select field.`);
+            unreachable(`Invalid sort order "${ui.sort_order_el.value}" in select field.`);
         }
 
         set_inputs({ sort_order: ui.sort_order_el.value as Sort_Order });
@@ -481,7 +481,7 @@ async function set_inputs_internal(
                 break;
             }
             default:
-                throw Error(`Invalid input property ${k}.`);
+                unreachable(`Invalid input property ${k}.`);
         }
 
         (inputs[k] as any) = v;
@@ -548,11 +548,8 @@ function assert(condition: boolean, message?: () => string): asserts condition {
     }
 }
 
-function assert_eq<T>(value: T, expected: T) {
-    assert(
-        deep_eq(value, expected),
-        () => `Value ${to_string(value)} did not match expected ${to_string(expected)}.`
-    );
+function unreachable(message?: string): never {
+    throw Error(message ?? `Should never reach this code.`);
 }
 
 interface Logger {
@@ -634,8 +631,13 @@ async function filter(logger: Logger) {
 
     logger.time_end('filter_parse_query');
 
-    const query: Query = combine_queries_with_conjunction(user_query, POOLS[inputs.pool]);
-    logger.log('query string', inputs.query_string, 'user query', user_query, 'final query', query);
+    const combined_query: Query = combine_queries_with_conjunction(user_query, POOLS[inputs.pool]);
+
+    const query: Query = simplify_query(combined_query);
+
+    logger.log('query string', inputs.query_string);
+    logger.log('user query', user_query);
+    logger.log('combined query', combined_query);
 
     result = await find_cards_matching_query(
         query,
@@ -691,55 +693,9 @@ async function filter(logger: Logger) {
     logger.time_end('filter');
 }
 
-function combine_queries_with_conjunction(...args: Query[]): Query {
-    assert(args.length >= 1);
-
-    const props = new Set<Prop>();
-    const conditions: Condition[] = [];
-
-    for (const query of args) {
-        switch (query.condition.type) {
-            case 'true':
-                // Has no effect on conjunction.
-                continue;
-            case 'and':
-                conditions.push(...query.condition.conditions);
-                break;
-            default:
-                conditions.push(query.condition);
-                break;
-        }
-
-        for (const prop of query.props) {
-            props.add(prop);
-        }
-    }
-
-    if (conditions.length === 0) {
-        // All were true.
-        assert_eq(args[0].condition.type, 'true');
-        return args[0];
-    }
-
-    if (conditions.length === 1) {
-        return {
-            props: [...props],
-            condition: conditions[0],
-        };
-    }
-
-    return {
-        props: [...props],
-        condition: {
-            type: 'and',
-            conditions,
-        }
-    };
-}
-
 type Query = {
-    props: Prop[],
-    condition: Condition,
+    readonly props: Prop[],
+    readonly condition: Condition,
 };
 
 type Condition =
@@ -747,54 +703,59 @@ type Condition =
     Disjunction_Condition |
     Conjunction_Condition |
     True_Condition |
+    False_Condition |
     Comparison_Condition |
     Substring_Condition |
     Predicate_Condition |
     Range_Condition;
 
 type Negation_Condition = {
-    type: 'not',
-    condition: Condition,
+    readonly type: 'not',
+    readonly condition: Condition,
 }
 
 type Disjunction_Condition = {
-    type: 'or',
-    conditions: Condition[],
+    readonly type: 'or',
+    readonly conditions: Condition[],
 }
 
 type Conjunction_Condition = {
-    type: 'and',
-    conditions: Condition[],
+    readonly type: 'and',
+    readonly conditions: Condition[],
 }
 
 type True_Condition = {
-    type: 'true',
+    readonly type: 'true',
+}
+
+type False_Condition = {
+    readonly type: 'false',
 }
 
 type Comparison_Condition = {
-    type: 'eq' | 'ne' | 'lt' | 'gt' | 'le' | 'ge',
-    prop: Prop,
-    value: number | string | Date | Mana_Cost,
+    readonly type: 'eq' | 'ne' | 'lt' | 'gt' | 'le' | 'ge',
+    readonly prop: Prop,
+    readonly value: number | string | Date | Mana_Cost,
 }
 
 type Substring_Condition = {
-    type: 'substring',
-    prop: Prop,
-    value: string,
+    readonly type: 'substring',
+    readonly prop: Prop,
+    readonly value: string,
 }
 
 type Predicate_Condition = {
-    type: 'even' | 'odd',
-    prop: Prop,
+    readonly type: 'even' | 'odd',
+    readonly prop: Prop,
 }
 
 type Range_Condition = {
-    type: 'range',
-    prop: Prop,
-    start: Date,
-    start_inc: boolean,
-    end: Date,
-    end_inc: boolean,
+    readonly type: 'range',
+    readonly prop: Prop,
+    readonly start: Date,
+    readonly start_inc: boolean,
+    readonly end: Date,
+    readonly end_inc: boolean,
 }
 
 function parse_query(query_string: string): Query {
@@ -816,7 +777,7 @@ class Query_Parser {
         let condition: Condition | false | null = this.parse_disjunction();
 
         if (condition === false || this.chars_left()) {
-            condition = { type: 'not', condition: { type: 'true' } };
+            condition = { type: 'false' };
         } else if (condition === null) {
             condition = { type: 'true' };
         }
@@ -852,7 +813,7 @@ class Query_Parser {
     }
 
     private parse_disjunction(): Condition | false | null {
-        const conditions = [];
+        const conditions: Condition[] = [];
 
         while (this.chars_left()) {
             if (this.char() === ')') {
@@ -874,11 +835,7 @@ class Query_Parser {
                 continue;
             }
 
-            if (condition.type === 'or') {
-                conditions.push(...condition.conditions);
-            } else {
-                conditions.push(condition);
-            }
+            conditions.push(condition);
         }
 
         if (conditions.length === 0) {
@@ -896,7 +853,7 @@ class Query_Parser {
     }
 
     private parse_conjunction(): Condition | false | null {
-        const conditions = [];
+        const conditions: Condition[] = [];
 
         while (this.chars_left()) {
             if (this.char() === ')') {
@@ -930,11 +887,7 @@ class Query_Parser {
                 continue;
             }
 
-            if (condition.type === 'and') {
-                conditions.push(...condition.conditions);
-            } else {
-                conditions.push(condition);
-            }
+            conditions.push(condition);
         }
 
         if (conditions.length === 0) {
@@ -1050,7 +1003,7 @@ class Query_Parser {
         return result;
     }
 
-    private parse_negation(): Condition | false {
+    private parse_negation(): Condition | false | null {
         this.pos++;
 
         const condition = this.parse_condition();
@@ -1059,13 +1012,13 @@ class Query_Parser {
             return false;
         }
 
-        if (condition?.type === 'not') {
-            return condition.condition;
+        if (condition === null) {
+            return null;
         }
 
         return {
             type: 'not',
-            condition: condition ?? { type: 'true' },
+            condition,
         };
     }
 
@@ -1336,7 +1289,7 @@ class Query_Parser {
         });
     }
 
-    private parse_name_cond(): Condition | null {
+    private parse_name_cond(): Condition {
         const { value, quoted } = this.parse_string();
         const value_lc = value.toLocaleLowerCase('en');
 
@@ -1363,7 +1316,7 @@ class Query_Parser {
             }
 
             if (conditions.length === 0) {
-                return null;
+                return { type: 'true' };
             }
 
             if (conditions.length === 1) {
@@ -1576,13 +1529,231 @@ class Query_Parser {
             case '>=':
                 return 'ge';
             default:
-                throw Error(`Unknown operator "${operator}".`);
+                unreachable(`Unknown operator "${operator}".`);
         }
     }
 
     private add_prop<T extends Condition & { prop: Prop }>(cond: T): T {
         this.props.add(cond.prop);
         return cond;
+    }
+}
+
+function combine_queries_with_conjunction(...queries: Query[]): Query {
+    assert(queries.length >= 1);
+
+    if (queries.length === 1) {
+        return queries[0];
+    }
+
+    const props = new Set<Prop>();
+    const conditions = Array<Condition>();
+
+    for (const query of queries) {
+        for (const prop of query.props) {
+            props.add(prop);
+        }
+
+        conditions.push(query.condition);
+    }
+
+    return {
+        props: [...props],
+        condition: {
+            type: 'and',
+            conditions,
+        }
+    };
+}
+
+/** Reduces amount of condition nesting. */
+function simplify_query(query: Query): Query {
+    return new Query_Simplifier().simplify(query);
+}
+
+class Query_Simplifier {
+    private props: Set<Prop> = undefined as any as Set<Prop>;
+
+    simplify(query: Query): Query {
+        this.props = new Set(query.props);
+
+        const condition = this.simplify_condition(query.condition);
+
+        return {
+            props: [...this.props],
+            condition,
+        }
+    }
+
+    private simplify_condition(condition: Condition): Condition {
+        switch (condition.type) {
+            case 'not': {
+                const nested_cond = this.simplify_condition(condition.condition);
+
+                switch (nested_cond.type) {
+                    case 'not':
+                        return nested_cond.condition;
+
+                    case 'true':
+                        return { type: 'false' };
+
+                    case 'false':
+                        return { type: 'true' };
+
+                    case 'eq':
+                        return {
+                            type: 'ne',
+                            prop: nested_cond.prop,
+                            value: nested_cond.value,
+                        };
+
+                    case 'ne':
+                        return {
+                            type: 'eq',
+                            prop: nested_cond.prop,
+                            value: nested_cond.value,
+                        };
+
+                    case 'lt':
+                        return {
+                            type: 'ge',
+                            prop: nested_cond.prop,
+                            value: nested_cond.value,
+                        };
+
+                    case 'le':
+                        return {
+                            type: 'gt',
+                            prop: nested_cond.prop,
+                            value: nested_cond.value,
+                        };
+
+                    case 'gt':
+                        return {
+                            type: 'le',
+                            prop: nested_cond.prop,
+                            value: nested_cond.value,
+                        };
+
+                    case 'ge':
+                        return {
+                            type: 'lt',
+                            prop: nested_cond.prop,
+                            value: nested_cond.value,
+                        };
+
+                    case 'even':
+                        return {
+                            type: 'odd',
+                            prop: nested_cond.prop,
+                        };
+
+                    case 'odd':
+                        return {
+                            type: 'even',
+                            prop: nested_cond.prop,
+                        };
+
+                    case 'or':
+                    case 'and':
+                    case 'substring':
+                    case 'range':
+                        return condition;
+                }
+            }
+
+            case 'or': {
+                const conditions: Condition[] = [];
+
+                for (const input_nested_cond of condition.conditions) {
+                    const nested_cond = this.simplify_condition(input_nested_cond);
+
+                    switch (nested_cond.type) {
+                        case 'true':
+                            // Entire disjunction is true.
+                            return { type: 'true' };
+                        case 'false':
+                            // Has no effect on disjunction.
+                            continue;
+                        case 'or':
+                            conditions.push(...nested_cond.conditions);
+                            break;
+                        default:
+                            conditions.push(nested_cond);
+                            break;
+                    }
+                }
+
+                if (conditions.length === 0) {
+                    // All were false.
+                    return { type: 'false' };
+                }
+
+                if (conditions.length === 1) {
+                    return conditions[0];
+                }
+
+                return {
+                    type: 'or',
+                    conditions,
+                };
+            }
+
+            case 'and': {
+                const conditions: Condition[] = [];
+
+                for (const input_nested_cond of condition.conditions) {
+                    const nested_cond = this.simplify_condition(input_nested_cond);
+
+                    switch (nested_cond.type) {
+                        case 'true':
+                            // Has no effect on conjunction.
+                            continue;
+                        case 'false':
+                            // Entire conjunction is false.
+                            return { type: 'false' };
+                        case 'and':
+                            conditions.push(...nested_cond.conditions);
+                            break;
+                        default:
+                            conditions.push(nested_cond);
+                            break;
+                    }
+                }
+
+                if (conditions.length === 0) {
+                    // All were true.
+                    return { type: 'true' };
+                }
+
+                if (conditions.length === 1) {
+                    return conditions[0];
+                }
+
+                return {
+                    type: 'and',
+                    conditions,
+                };
+            }
+
+            case 'true':
+            case 'false':
+                return condition;
+
+            case 'eq':
+            case 'ne':
+            case 'lt':
+            case 'le':
+            case 'gt':
+            case 'ge':
+            case 'substring':
+            case 'even':
+            case 'odd':
+            case 'range': {
+                this.props.add(condition.prop);
+                return condition;
+            }
+        }
     }
 }
 
@@ -2016,7 +2187,7 @@ function matches_query(card_idx: number, query: Query, logger: Logger): boolean 
     try {
         return new Query_Evaluator().evaluate(query, card_idx, logger);
     } catch (e) {
-        throw Error(`Couldn't evaluate query with "${name}".`, { cause: e });
+        throw Error(`Couldn't evaluate query with "${data.cards.name(card_idx)}".`, { cause: e });
     }
 }
 
@@ -2031,6 +2202,8 @@ class Query_Evaluator {
         const name = data.cards.name(card_idx);
         logger.log(`evaluating query with "${name}"`, card_idx);
 
+        // TODO: Do the per version properties in a faster way (keep a set of matching versions and
+        //       have nested properties reset/invert the set if necessary?).
         const per_version = query.props.some(p => PER_VERSION_PROPS.includes(p));
         const version_count = per_version ? data.cards.version_count(this.card_idx) : 1;
         assert(version_count !== null);
@@ -2053,6 +2226,10 @@ class Query_Evaluator {
         switch (condition.type) {
             case 'true': {
                 result = true;
+                break;
+            }
+            case 'false': {
+                result = false;
                 break;
             }
             case 'or': {
@@ -2140,7 +2317,7 @@ class Query_Evaluator {
                         result = mana_cost_is_super_set(cond_value, value, false, this.logger);
                         break;
                     default:
-                        throw Error(
+                        unreachable(
                             `Invalid condition type "${condition.type}" for property "${condition.prop}".`
                         );
                 }
@@ -2216,7 +2393,7 @@ class Query_Evaluator {
                         break;
                     }
                     default:
-                        throw Error(`Invalid condition type "${(condition as Condition).type}".`);
+                        unreachable(`Invalid condition type "${(condition as Condition).type}".`);
                 }
 
                 if (result) {
@@ -2278,7 +2455,7 @@ async function run_test_suite() {
         assert(expected.size <= MAX_MATCHES);
 
         test(`${name} [${query_string}]`, async logger => {
-            const query = parse_query(query_string);
+            const query = simplify_query(parse_query(query_string));
             const result = await find_cards_matching_query(
                 query,
                 'name',
@@ -2595,7 +2772,6 @@ async function run_test_suite() {
         ['Drake Familiar', 'Snapping Drake', 'Tattered Drake'],
     );
 
-    // SF seems to interpret this as "name does not contain the empty string".
     test_query(
         'negation',
         '-t:land forest',
