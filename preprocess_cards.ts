@@ -2,8 +2,8 @@ import { mkdir } from "node:fs/promises";
 
 // Cards to exclude from the final data.
 const EXCLUDED_SET_TYPES = ['memorabilia', 'token'];
-const EXCLUDED_LAYOUTS = ['scheme', 'token', 'planar', 'emblem', 'vanguard', 'double_faced_token'];
 const EXCLUDED_SETS = ['cmb2'];
+const EXCLUDED_LAYOUTS = ['scheme', 'token', 'planar', 'emblem', 'vanguard', 'double_faced_token'];
 // We also exclude purely digital cards.
 
 const sf_bulk_info = await (await fetch('https://api.scryfall.com/bulk-data')).json();
@@ -25,11 +25,11 @@ for (const src_card of oracle_cards) {
         continue;
     }
 
-    if (EXCLUDED_LAYOUTS.includes(src_card.layout)) {
+    if (EXCLUDED_SETS.includes(src_card.set)) {
         continue;
     }
 
-    if (EXCLUDED_SETS.includes(src_card.set)) {
+    if (EXCLUDED_LAYOUTS.includes(src_card.layout)) {
         continue;
     }
 
@@ -56,6 +56,7 @@ for (const src_card of oracle_cards) {
             rarities: new Set<string>([src_card.rarity]),
             sets: new Set<string>([src_card.set]),
             sfurl,
+            released_at: [new Date(src_card.released_at + 'T00:00:00Z')],
 
             // Card or face properties. I.e. either one or two values per card.
             colors: Array<string>(),
@@ -132,7 +133,12 @@ for (const src_card of default_cards) {
     if (dst_card) {
         dst_card.rarities.add(src_card.rarity);
         dst_card.sets.add(src_card.set);
+        dst_card.released_at.push(new Date(src_card.released_at + 'T00:00:00Z'));
     }
+}
+
+for (const dst_card of processed_cards) {
+    dst_card.released_at.sort((a: Date, b: Date) => a.getTime() - b.getTime());
 }
 
 // Generate sort indices.
@@ -157,6 +163,7 @@ for (const prop of [
     'name',
     'oracle',
     'rarities',
+    'released_at',
     'sets',
     'sfurl',
     'type',
@@ -165,7 +172,17 @@ for (const prop of [
         `src/card_${prop}.json`,
         JSON.stringify(
             processed_cards.map(c => c[prop]),
-            (_key, value) => (value instanceof Set ? [...value] : value),
+            function (key) {
+                const value = this[key];
+
+                if (value instanceof Set) {
+                    return [...value];
+                } else if (value instanceof Date) {
+                    return value.toISOString().split('T')[0];
+                } else {
+                    return value;
+                }
+            },
         ),
     );
 }
