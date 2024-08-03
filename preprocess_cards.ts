@@ -2,37 +2,47 @@ import { mkdir } from "node:fs/promises";
 
 // Cards to exclude from the final data.
 const EXCLUDED_SET_TYPES = ['memorabilia', 'token'];
-const EXCLUDED_SETS = ['cmb2'];
+const EXCLUDED_SETS = ['cmb1', 'cmb2'];
 const EXCLUDED_LAYOUTS = ['scheme', 'token', 'planar', 'emblem', 'vanguard', 'double_faced_token'];
 // We also exclude purely digital cards.
 
+type Processed_Card = {
+    // Card properties.
+    cmc: string,
+    formats: string[],
+    identity: string,
+    sfurl: string,
+
+    // Per-version properties.
+    versions: {
+        digital: boolean,
+        layout: string,
+        rarity: string,
+        released_at: Date,
+        set: string,
+        set_type: string,
+    }[],
+
+    // Card or face properties. I.e. either one or two values per card.
+    colors: string[],
+    cost: string[],
+    img: string[],
+    name: string[],
+    oracle: string[],
+    type: string[],
+}
+
 const sf_bulk_info = await (await fetch('https://api.scryfall.com/bulk-data')).json();
 
-const processed_cards = [];
-// We put digital cards in this map during the pass over the oracle cards. Then if, during the pass
-// over the default cards, we find a version of any of these cards that's not digital, we add the
-// digital version of it to the processed cards array. We use the digital version, because it's what
-// ScryFall considers the most legible version (compare ).
-const id_to_digital_card = new Map;
-const id_to_card = new Map;
+let cards: Processed_Card[] = [];
+const id_to_card = new Map<string, Processed_Card>;
 
-// Process Scryfall "Oracle" cards.
+// Process Scryfall "Oracle" cards. We do an initial pass over the oracle cards to get the most
+// legible version of each card.
 
 const oracle_cards = await get_card_data(sf_bulk_info, 'oracle_cards');
 
 for (const src_card of oracle_cards) {
-    if (EXCLUDED_SET_TYPES.includes(src_card.set_type)) {
-        continue;
-    }
-
-    if (EXCLUDED_SETS.includes(src_card.set)) {
-        continue;
-    }
-
-    if (EXCLUDED_LAYOUTS.includes(src_card.layout)) {
-        continue;
-    }
-
     try {
         for (const prop of ['colors', 'image_uris']) {
             if (prop in src_card && src_card.card_faces?.some((f: any) => prop in f)) {
@@ -48,23 +58,23 @@ for (const src_card of oracle_cards) {
             .filter(([_, v]) => v !== 'not_legal' && v !== 'banned')
             .map(([k]) => k);
 
-        const dst_card = {
+        const dst_card: Processed_Card = {
             // Card properties.
             cmc: src_card.cmc,
             formats,
             identity: src_card.color_identity.join(''),
-            rarities: new Set<string>([src_card.rarity]),
-            sets: new Set<string>([src_card.set]),
             sfurl,
-            released_at: [new Date(src_card.released_at + 'T00:00:00Z')],
+
+            // Per-version properties.
+            versions: [],
 
             // Card or face properties. I.e. either one or two values per card.
-            colors: Array<string>(),
-            cost: Array<string>(),
-            img: Array<string>(),
-            name: Array<string>(),
-            oracle: Array<string>(),
-            type: Array<string>(),
+            colors: [],
+            cost: [],
+            img: [],
+            name: [],
+            oracle: [],
+            type: [],
         };
 
         // Properties that will be on the face if there are faces, and on the card if there are no
@@ -89,19 +99,16 @@ for (const src_card of oracle_cards) {
             }
         }
 
-        if (src_card.digital) {
-            id_to_digital_card.set(src_card.oracle_id, dst_card);
-        } else {
-            processed_cards.push(dst_card);
-            id_to_card.set(src_card.oracle_id, dst_card);
-        }
+        cards.push(dst_card);
+        id_to_card.set(src_card.oracle_id, dst_card);
     } catch (e) {
         console.error(src_card.name, e);
         throw e;
     }
 }
 
-// Process Scryfall "Default" cards.
+// Process Scryfall "Default" cards. Do a pass over the default cards, to get the information of all
+// card versions.
 
 const default_cards = await get_card_data(sf_bulk_info, 'default_cards');
 
@@ -113,45 +120,61 @@ for (const src_card of default_cards) {
         continue;
     }
 
-    if (src_card.digital) {
-        // Don't care about digital cards.
-        continue;
+    const dst_card = id_to_card.get(id);
+
+    if (dst_card === undefined) {
+        throw Error(`No card for ${id}.`);
     }
 
-    let dst_card = id_to_digital_card.get(id);
-
-    if (dst_card) {
-        // The card is not just digital, add it to the list.
-        id_to_digital_card.delete(id);
-
-        processed_cards.push(dst_card);
-        id_to_card.set(src_card.oracle_id, dst_card);
-    } else {
-        dst_card = id_to_card.get(id);
-    }
-
-    if (dst_card) {
-        dst_card.rarities.add(src_card.rarity);
-        dst_card.sets.add(src_card.set);
-        dst_card.released_at.push(new Date(src_card.released_at + 'T00:00:00Z'));
-    }
+    dst_card.versions.push({
+        digital: src_card.digital,
+        layout: src_card.layout,
+        rarity: src_card.rarity,
+        released_at: new Date(src_card.released_at + 'T00:00:00Z'),
+        set: src_card.set,
+        set_type: src_card.set_type,
+    });
 }
 
-for (const dst_card of processed_cards) {
-    dst_card.released_at.sort((a: Date, b: Date) => a.getTime() - b.getTime());
+// Filter out cards we don't want.
+cards = cards.filter(dst_card =>
+    !dst_card.versions.every(version =>
+        version.digital
+        || EXCLUDED_SET_TYPES.includes(version.set_type)
+        || EXCLUDED_SETS.includes(version.set)
+        || EXCLUDED_LAYOUTS.includes(version.layout)
+    )
+);
+
+// Sort versions by release date.
+for (const dst_card of cards) {
+    dst_card.versions.sort((a, b) => a.released_at.getTime() - b.released_at.getTime());
 }
 
 // Generate sort indices.
 
-const sort_indices = new ArrayBuffer(4 * processed_cards.length);
+const sort_indices = new ArrayBuffer(4 * cards.length);
 
-processed_cards.sort((a, b) =>
+// Default sort is alphabetically by name.
+cards.sort((a, b) =>
     full_card_name(a).localeCompare(full_card_name(b), 'en', { ignorePunctuation: true })
 );
 
-const sort_indices_len = generate_sort_indices(sort_indices, processed_cards);
+const sort_indices_len = generate_sort_indices(sort_indices, cards);
 
 // Finally write our output files.
+
+function json_replacer(this: any, key: string): any {
+    const value = this[key];
+
+    if (value instanceof Set) {
+        return [...value];
+    } else if (value instanceof Date) {
+        return value.toISOString().split('T')[0];
+    } else {
+        return value;
+    }
+}
 
 for (const prop of [
     'colors',
@@ -162,27 +185,28 @@ for (const prop of [
     'img',
     'name',
     'oracle',
-    'rarities',
-    'released_at',
-    'sets',
     'sfurl',
     'type',
-]) {
+] as (keyof Processed_Card)[]) {
     await Bun.write(
         `src/card_${prop}.json`,
         JSON.stringify(
-            processed_cards.map(c => c[prop]),
-            function (key) {
-                const value = this[key];
+            cards.map(c => c[prop]),
+            json_replacer,
+        ),
+    );
+}
 
-                if (value instanceof Set) {
-                    return [...value];
-                } else if (value instanceof Date) {
-                    return value.toISOString().split('T')[0];
-                } else {
-                    return value;
-                }
-            },
+for (const prop of [
+    'rarity',
+    'released_at',
+    'set',
+] as (keyof Processed_Card['versions'][0])[]) {
+    await Bun.write(
+        `src/card_${prop}.json`,
+        JSON.stringify(
+            cards.map(c => c.versions.map(v => v[prop])),
+            json_replacer,
         ),
     );
 }

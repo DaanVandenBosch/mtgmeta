@@ -12,14 +12,15 @@ type Prop =
     'name_inexact' |
     'oracle' |
     'oracle_search' |
-    'rarities' |
+    'rarity' |
     'released_at' |
-    'sets' |
+    'reprint' |
+    'set' |
     'sfurl' |
     'type' |
     'type_search';
 
-const PER_VERSION_PROPS: Prop[] = ['released_at'];
+const PER_VERSION_PROPS: Prop[] = ['rarity', 'released_at', 'reprint', 'set'];
 
 const MANA_WHITE = 'W';
 const MANA_BLUE = 'U';
@@ -82,6 +83,19 @@ const data = {
                     prop = 'oracle';
                     break;
 
+                case 'reprint':
+                    for (const pp_prop of PER_VERSION_PROPS) {
+                        const promise = this.load_promises.get(pp_prop);
+
+                        if (promise !== undefined) {
+                            return promise;
+                        }
+                    }
+
+                    // Just load *a* per-version property, so we know the version count.
+                    prop = 'set';
+                    break;
+
                 case 'type_search':
                     prop = 'type';
                     break;
@@ -100,8 +114,8 @@ const data = {
                                 for (let i = 0, len = faces.length; i < len; i++) {
                                     const value_str = faces[i];
 
-                                    // Ignore non-existent values. Also ignore empty mana costs of the
-                                    // backside of transform cards.
+                                    // Ignore non-existent values. Also ignore empty mana costs of
+                                    // the backside of transform cards.
                                     if (value_str === null
                                         || (i >= 1 && prop === 'cost' && value_str === '')
                                     ) {
@@ -182,13 +196,18 @@ const data = {
 
         /** Returns the value or values of a property for a specific version. */
         get_for_version<T>(idx: number, version_idx: number, prop: Prop): T | null {
+            // Reprint is a logical property, every version except the first is a reprint.
+            if (prop === 'reprint') {
+                return (version_idx !== 0) as T;
+            }
+
             const value = this.props.get(prop)?.at(idx);
 
             if (value == null) {
                 return null;
             }
 
-            if (prop === 'released_at') {
+            if (PER_VERSION_PROPS.includes(prop)) {
                 return value[version_idx] ?? null;
             } else {
                 return value;
@@ -196,7 +215,15 @@ const data = {
         },
 
         version_count(idx: number): number | null {
-            return this.get<Date[]>(idx, 'released_at')?.length ?? null;
+            for (const pp_prop of PER_VERSION_PROPS) {
+                const values = this.get<any[]>(idx, pp_prop);
+
+                if (values !== null) {
+                    return values.length;
+                }
+            }
+
+            return null;
         },
 
         name(idx: number): string | null {
@@ -735,7 +762,7 @@ type False_Condition = {
 type Comparison_Condition = {
     readonly type: 'eq' | 'ne' | 'lt' | 'gt' | 'le' | 'ge',
     readonly prop: Prop,
-    readonly value: number | string | Date | Mana_Cost,
+    readonly value: number | boolean | string | Date | Mana_Cost,
 }
 
 type Substring_Condition = {
@@ -941,11 +968,6 @@ class Query_Parser {
                 result = this.parse_color_or_id_cond(operator, 'ge', 'colors');
                 break;
 
-            case 'identity':
-            case 'id':
-                result = this.parse_color_or_id_cond(operator, 'le', 'identity');
-                break;
-
             case 'date':
                 result = this.parse_date_cond(operator);
                 break;
@@ -953,6 +975,16 @@ class Query_Parser {
             case 'format':
             case 'f':
                 result = this.parse_format_cond(operator);
+                break;
+
+            case 'identity':
+            case 'id':
+                result = this.parse_color_or_id_cond(operator, 'le', 'identity');
+                break;
+
+            case 'is':
+            case 'not':
+                result = this.parse_boolean_prop_cond(keyword, operator);
                 break;
 
             case 'mana':
@@ -1241,6 +1273,32 @@ class Query_Parser {
         });
     }
 
+    private parse_boolean_prop_cond(
+        keyword: 'is' | 'not',
+        operator: Operator,
+    ): Comparison_Condition | null {
+        if (operator !== ':' && operator !== '=') {
+            return null;
+        }
+
+        const start_pos = this.pos;
+        const prop = this.parse_word();
+        const value = keyword === 'is';
+
+        switch (prop) {
+            case 'reprint':
+                return {
+                    type: 'eq',
+                    prop,
+                    value,
+                };
+
+            default:
+                this.pos = start_pos;
+                return null;
+        }
+    }
+
     private parse_mana_cost_cond(operator: Operator): Comparison_Condition | null {
         const { cost, len } = parse_mana_cost(this.query_string, this.pos);
 
@@ -1359,7 +1417,7 @@ class Query_Parser {
 
         return this.add_prop({
             type: this.operator_to_type(operator, 'eq'),
-            prop: 'sets',
+            prop: 'set',
             value,
         });
     }
@@ -1398,7 +1456,7 @@ class Query_Parser {
 
         return this.add_prop({
             type: this.operator_to_type(operator, 'eq'),
-            prop: 'rarities',
+            prop: 'rarity',
             value,
         });
     }
@@ -2200,13 +2258,14 @@ class Query_Evaluator {
         this.logger = logger;
 
         const name = data.cards.name(card_idx);
-        logger.log(`evaluating query with "${name}"`, card_idx);
 
         // TODO: Do the per version properties in a faster way (keep a set of matching versions and
         //       have nested properties reset/invert the set if necessary?).
         const per_version = query.props.some(p => PER_VERSION_PROPS.includes(p));
-        const version_count = per_version ? data.cards.version_count(this.card_idx) : 1;
+        const version_count = per_version ? data.cards.version_count(card_idx) : 1;
         assert(version_count !== null);
+
+        logger.log(`evaluating query with "${name}"`, card_idx, `versions: ${version_count}`);
 
         for (let version_idx = 0; version_idx < version_count; version_idx++) {
             if (this.evaluate_condition(query.condition, version_idx)) {
@@ -2330,7 +2389,7 @@ class Query_Evaluator {
             let eq: (a: any, b: any) => boolean = (a, b) => a === b;
             let compare: (a: any, b: any) => number = (a, b) => a - b;
 
-            if (condition.prop === 'rarities') {
+            if (condition.prop === 'rarity') {
                 compare = (a, b) => (RARITY_RANK as any)[a] - (RARITY_RANK as any)[b];
             } else if (condition.prop === 'released_at') {
                 eq = (a, b) => a - b === 0
@@ -2822,6 +2881,12 @@ async function run_test_suite() {
         'date:1993-08-05 rec',
         ['Ancestral Recall', 'Resurrection'],
     );
+
+    test_query(
+        'reprint',
+        'not:reprint set:m12 t:wizard',
+        ['Alabaster Mage', 'Azure Mage', "Jace's Archivist", 'Lord of the Unreal', 'Merfolk Mesmerist', 'Onyx Mage'],
+    )
 
     test_query(
         'disjunction',
