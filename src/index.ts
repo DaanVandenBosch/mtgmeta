@@ -253,19 +253,17 @@ const data = {
         },
     },
 
-    sorters: new Map<Sort_Order, Sorter>(),
-    sorter_promises: new Map<Sort_Order, Promise<void>>(),
+    sorters: new Map<Sort_Order, Promise<Sorter>>(),
 
-    async load_sorter(order: Sort_Order) {
-        let promise = this.sorter_promises.get(order);
+    async get_sorter(order: Sort_Order): Promise<Sorter> {
+        let promise = this.sorters.get(order);
 
         if (promise === undefined) {
             if (order === 'name') {
-                promise = Promise.resolve();
-                this.sorters.set(order, new Default_Sorter(order));
+                promise = Promise.resolve(new Default_Sorter(order));
             } else {
                 promise = fetch(`card_${order}.sort`).then(async response => {
-                    let sorter: Sorter = new Default_Sorter(order);
+                    let sorter: Sorter;
 
                     try {
                         sorter = new Index_Sorter(await response.arrayBuffer());
@@ -273,27 +271,17 @@ const data = {
                         assert_eq(sorter.order, order);
                     } catch (e) {
                         Console_Logger.error(e);
+                        return new Default_Sorter(order);
                     }
 
-                    this.sorters.set(order, sorter);
+                    return sorter;
                 });
             }
 
-            this.sorter_promises.set(order, promise);
+            this.sorters.set(order, promise);
         }
 
         return promise;
-    },
-
-    get_sorter(order: Sort_Order): Sorter {
-        let sorter = this.sorters.get(order);
-
-        if (sorter === undefined) {
-            sorter = new Default_Sorter(order);
-            this.sorters.set(order, sorter);
-        }
-
-        return sorter;
     },
 };
 
@@ -2302,7 +2290,7 @@ async function find_cards_matching_query(
         required_for_query_promises.push(data.cards.load(prop));
     }
 
-    required_for_query_promises.push(data.load_sorter(sort_order));
+    const sorter_promise = data.get_sorter(sort_order);
 
     for (const prop of Array<Prop>('sfurl', 'img')) {
         required_for_display_promises.push(data.cards.load(prop));
@@ -2315,7 +2303,7 @@ async function find_cards_matching_query(
 
     // Await the smallest display property if we have no necessary properties to wait for, just to
     // get the amount of cards.
-    if (required_for_query_promises.length === 0) {
+    if (data.cards.length === null) {
         await required_for_display_promises[0];
     }
 
@@ -2323,7 +2311,9 @@ async function find_cards_matching_query(
     logger.time('find_cards_matching_query_evaluate');
 
     const len = data.cards.length ?? 0;
-    const sorter = data.get_sorter(sort_order);
+    // TODO: We could avoid waiting for the sorter if we had another way of determining the sort
+    //       type.
+    const sorter = await sorter_promise;
     const add_version_idx = sorter.type === Sort_Type.BY_VERSION;
 
     const matching_cards = new Set<number>();
