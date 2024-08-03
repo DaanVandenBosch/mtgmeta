@@ -1,3 +1,4 @@
 src/*.json filter=lfs diff=lfs merge=lfs -text
 src/*.idx filter=lfs diff=lfs merge=lfs -text
+src/*.sort filter=lfs diff=lfs merge=lfs -text
 *.lockb binary diff=lockb
