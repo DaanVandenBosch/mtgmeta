@@ -32,13 +32,14 @@ type Processed_Card = {
     type: string[],
 }
 
+console.log('Getting Scryfall bulk data information.');
 const sf_bulk_info = await (await fetch('https://api.scryfall.com/bulk-data')).json();
 
 let cards: Processed_Card[] = [];
 const id_to_card = new Map<string, Processed_Card>;
 
-// Process Scryfall "Oracle" cards. We do an initial pass over the oracle cards to get the most
-// legible version of each card.
+console.log('Processing Scryfall "Oracle" cards.');
+// We do an initial pass over the oracle cards to get the most legible version of each card.
 
 const oracle_cards = await get_card_data(sf_bulk_info, 'oracle_cards');
 
@@ -107,8 +108,8 @@ for (const src_card of oracle_cards) {
     }
 }
 
-// Process Scryfall "Default" cards. Do a pass over the default cards, to get the information of all
-// card versions.
+console.log('Processing Scryfall "Default" cards.');
+// Do a pass over the default cards, to get the information of all card versions.
 
 const default_cards = await get_card_data(sf_bulk_info, 'default_cards');
 
@@ -151,7 +152,7 @@ for (const dst_card of cards) {
     dst_card.versions.sort((a, b) => a.released_at.getTime() - b.released_at.getTime());
 }
 
-// Generate sort indices.
+console.log('Generating sort indices.');
 
 const sort_indices = new ArrayBuffer(4 * cards.length);
 
@@ -162,7 +163,7 @@ cards.sort((a, b) =>
 
 const sort_indices_len = generate_sort_indices(sort_indices, cards);
 
-// Finally write our output files.
+console.log('Writing output files.');
 
 function json_replacer(this: any, key: string): any {
     const value = this[key];
@@ -214,6 +215,12 @@ for (const prop of [
 await Bun.write(
     'src/cards.idx',
     new Uint8Array(sort_indices, 0, sort_indices_len),
+);
+
+const total_versions = cards.reduce((acc, card) => acc + card.versions.length, 0);
+
+console.log(
+    `Created property files for ${cards.length} cards with ${total_versions} versions total.`
 );
 
 // Helper functions.
