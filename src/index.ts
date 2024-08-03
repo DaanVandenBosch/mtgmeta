@@ -759,7 +759,7 @@ interface Sorter {
     readonly order: Sort_Order;
     readonly type: Sort_Type;
 
-    sort(cards: Set<number>, asc: boolean): number[];
+    sort(cards: Map<number, number>, asc: boolean): number[];
 }
 
 /** Sorts by card order, which is name by default. */
@@ -771,7 +771,7 @@ class Default_Sorter implements Sorter {
         this.order = order;
     }
 
-    sort(cards: Set<number>, asc: boolean): number[] {
+    sort(cards: Map<number, number>, asc: boolean): number[] {
         const len = data.cards.length ?? 0;
         const result = [];
 
@@ -818,7 +818,7 @@ class Index_Sorter implements Sorter {
         this.type = type;
     }
 
-    sort(cards: Set<number>, asc: boolean): number[] {
+    sort(cards: Map<number, number>, asc: boolean): number[] {
         const GROUP_TABLE_OFFSET = Index_Sorter.GROUP_TABLE_OFFSET;
         const type = this.type;
         const len = data.cards.length ?? 0;
@@ -847,15 +847,13 @@ class Index_Sorter implements Sorter {
                     continue;
                 }
 
-                let idx = card_idx;
+                let version_idx = 0;
 
                 if (type === Sort_Type.BY_VERSION) {
-                    idx <<= 16;
-                    const version_idx = this.u16(offset + 2);
-                    idx |= version_idx;
+                    version_idx = this.u16(offset + 2);
                 }
 
-                if (cards.has(idx)) {
+                if (cards.get(card_idx) === version_idx) {
                     result.push(card_idx);
                 }
             }
@@ -2316,19 +2314,17 @@ async function find_cards_matching_query(
     const sorter = await sorter_promise;
     const add_version_idx = sorter.type === Sort_Type.BY_VERSION;
 
-    const matching_cards = new Set<number>();
+    const matching_cards = new Map<number, number>();
 
     for (let card_idx = 0; card_idx < len; card_idx++) {
         if (matches_query(card_idx, query, card_logger(card_idx))) {
-            let idx = card_idx;
+            let version_idx = 0;
 
             if (add_version_idx) {
-                idx <<= 16;
                 // TODO: Version.
-                idx |= 0;
             }
 
-            matching_cards.add(idx);
+            matching_cards.set(card_idx, version_idx);
         }
     }
 
