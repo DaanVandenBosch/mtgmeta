@@ -56,12 +56,8 @@ const POOL_PREMODERN_PAUPER_COMMANDER = 'pmpc';
 
 const POOLS: { [key: string]: Query } = {};
 
-const SORT_ORDER_TO_INDEX = Object.freeze({
-    cmc: 0,
-    name: null,
-});
-
-type Sort_Order = keyof typeof SORT_ORDER_TO_INDEX;
+type Sort_Order = 'cmc' | 'name' | 'released_at';
+const SORT_ORDERS: Sort_Order[] = ['cmc', 'name', 'released_at'];
 
 const INEXACT_REGEX = /[.,:;/\\'" \t]+/g;
 
@@ -70,7 +66,7 @@ const data = {
     cards: {
         length: null as number | null,
         props: new Map<Prop, any>(),
-        load_promises: new Map<Prop, Promise<void>>(),
+        prop_promises: new Map<Prop, Promise<void>>(),
 
         async load(prop: Prop) {
             switch (prop) {
@@ -85,7 +81,7 @@ const data = {
 
                 case 'reprint':
                     for (const pp_prop of PER_VERSION_PROPS) {
-                        const promise = this.load_promises.get(pp_prop);
+                        const promise = this.prop_promises.get(pp_prop);
 
                         if (promise !== undefined) {
                             return promise;
@@ -101,7 +97,7 @@ const data = {
                     break;
             }
 
-            let promise = this.load_promises.get(prop);
+            let promise = this.prop_promises.get(prop);
 
             if (promise === undefined) {
                 promise = fetch(`card_${prop}.json`).then(async response => {
@@ -183,7 +179,7 @@ const data = {
                     this.length = data.length;
                 });
 
-                this.load_promises.set(prop, promise);
+                this.prop_promises.set(prop, promise);
             }
 
             return promise;
@@ -256,22 +252,49 @@ const data = {
             return `https://cards.scryfall.io/normal/${imgs[0]}`;
         },
     },
-    sort_indices: null as ArrayBuffer | null,
-    sort_indices_load_promise: null as Promise<void> | null,
 
-    async load_sort_indices() {
-        let promise = this.sort_indices_load_promise;
+    sorters: new Map<Sort_Order, Sorter>(),
+    sorter_promises: new Map<Sort_Order, Promise<void>>(),
 
-        if (promise === null) {
-            promise = fetch('cards.idx').then(async response => {
-                this.sort_indices = await response.arrayBuffer();
-            });
+    async load_sorter(order: Sort_Order) {
+        let promise = this.sorter_promises.get(order);
 
-            this.sort_indices_load_promise = promise;
+        if (promise === undefined) {
+            if (order === 'name') {
+                promise = Promise.resolve();
+                this.sorters.set(order, new Default_Sorter(order));
+            } else {
+                promise = fetch(`card_${order}.sort`).then(async response => {
+                    let sorter: Sorter = new Default_Sorter(order);
+
+                    try {
+                        sorter = new Index_Sorter(await response.arrayBuffer());
+                        // Even when this assert throws, we keep the sorter.
+                        assert_eq(sorter.order, order);
+                    } catch (e) {
+                        Console_Logger.error(e);
+                    }
+
+                    this.sorters.set(order, sorter);
+                });
+            }
+
+            this.sorter_promises.set(order, promise);
         }
 
         return promise;
-    }
+    },
+
+    get_sorter(order: Sort_Order): Sorter {
+        let sorter = this.sorters.get(order);
+
+        if (sorter === undefined) {
+            sorter = new Default_Sorter(order);
+            this.sorters.set(order, sorter);
+        }
+
+        return sorter;
+    },
 };
 
 /** User input. */
@@ -317,6 +340,8 @@ const ui = {
     result_cards_el: undefined as any as HTMLElement,
 };
 
+const TEXT_DECODER = new TextDecoder();
+
 async function init() {
     Console_Logger.time('init');
 
@@ -360,7 +385,7 @@ async function init() {
 
     ui.pool_el.onchange = () => set_inputs({ pool: ui.pool_el.value });
     ui.sort_order_el.onchange = () => {
-        if (!(ui.sort_order_el.value in SORT_ORDER_TO_INDEX)) {
+        if (!SORT_ORDERS.includes(ui.sort_order_el.value as Sort_Order)) {
             unreachable(`Invalid sort order "${ui.sort_order_el.value}" in select field.`);
         }
 
@@ -384,10 +409,11 @@ async function init() {
     Console_Logger.time_end('init');
 
     // Run tests when hostname is localhost or an IPv4 address or explicit parameter is passed.
-    if (window.location.hostname === 'localhost'
-        || /^\d+\.\d+\.\d+\.\d+(:\d+)?$/g.test(window.location.hostname)
-        || params.get('tests')?.toLocaleLowerCase('en') === 'true'
-    ) {
+    const tests_param = params.get('tests')?.toLocaleLowerCase('en');
+    const is_dev_host = window.location.hostname === 'localhost'
+        || /^\d+\.\d+\.\d+\.\d+(:\d+)?$/g.test(window.location.hostname);
+
+    if (tests_param === 'true' || (is_dev_host && tests_param !== 'false')) {
         run_test_suite();
     }
 }
@@ -416,11 +442,11 @@ async function set_inputs_from_params(params: URLSearchParams, force_filter: boo
         }
     }
 
-    const sort_order = params.get('o');
+    const sort_order = params.get('o') as Sort_Order;
 
     if (sort_order !== null) {
-        if (sort_order in SORT_ORDER_TO_INDEX) {
-            new_inputs.sort_order = sort_order as Sort_Order;
+        if (SORT_ORDERS.includes(sort_order)) {
+            new_inputs.sort_order = sort_order;
         } else {
             Console_Logger.error(`Invalid sort order in URL: ${sort_order}`);
         }
@@ -575,6 +601,13 @@ function assert(condition: boolean, message?: () => string): asserts condition {
     }
 }
 
+function assert_eq<T>(actual: T, expected: T) {
+    assert(
+        deep_eq(actual, expected),
+        () => `Expected ${JSON.stringify(actual)} to be deeply equal to ${JSON.stringify(expected)}.`,
+    );
+}
+
 function unreachable(message?: string): never {
     throw Error(message ?? `Should never reach this code.`);
 }
@@ -640,7 +673,7 @@ function string_to_int(s: string): number | null {
 }
 
 async function filter(logger: Logger) {
-    logger.info('Filtering cards.');
+    logger.group('Filtering cards.');
     logger.time('filter');
 
     // Try to avoid showing "Loading..." when the user opens the app, as it makes you think you
@@ -657,11 +690,16 @@ async function filter(logger: Logger) {
     const user_query: Query = parse_query(inputs.query_string);
 
     logger.time_end('filter_parse_query');
+    logger.time('filter_combine_query');
 
     const combined_query: Query = combine_queries_with_conjunction(user_query, POOLS[inputs.pool]);
 
+    logger.time_end('filter_combine_query');
+    logger.time('filter_simplify_query');
+
     const query: Query = simplify_query(combined_query);
 
+    logger.time_end('filter_simplify_query');
     logger.log('query string', inputs.query_string);
     logger.log('user query', user_query);
     logger.log('combined query', combined_query);
@@ -673,6 +711,8 @@ async function filter(logger: Logger) {
         logger,
         () => Nop_Logger,
     );
+
+    logger.time('filter_render');
 
     const frag = document.createDocumentFragment();
     let start_pos = inputs.start_pos;
@@ -717,7 +757,142 @@ async function filter(logger: Logger) {
     ui.result_first_el.disabled = at_first_page;
     ui.result_last_el.disabled = at_last_page;
 
+    logger.time_end('filter_render');
     logger.time_end('filter');
+    logger.group_end();
+}
+
+enum Sort_Type {
+    BY_CARD = 1,
+    BY_VERSION = 2,
+}
+
+interface Sorter {
+    readonly order: Sort_Order;
+    readonly type: Sort_Type;
+
+    sort(cards: Set<number>, asc: boolean): number[];
+}
+
+/** Sorts by card order, which is name by default. */
+class Default_Sorter implements Sorter {
+    readonly order: Sort_Order;
+    readonly type: Sort_Type = Sort_Type.BY_CARD;
+
+    constructor(order: Sort_Order) {
+        this.order = order;
+    }
+
+    sort(cards: Set<number>, asc: boolean): number[] {
+        const len = data.cards.length ?? 0;
+        const result = [];
+
+        for (let i = 0; i < len; i++) {
+            const card_idx = asc ? i : (len - 1 - i);
+
+            if (cards.has(card_idx)) {
+                result.push(card_idx);
+            }
+        }
+
+        return result;
+    }
+}
+
+class Index_Sorter implements Sorter {
+    static readonly GROUP_HEADER_OFFSET = 24;
+    static readonly GROUP_TABLE_OFFSET = Index_Sorter.GROUP_HEADER_OFFSET + 4;
+
+    private view: DataView
+    readonly order: Sort_Order;
+    readonly type: Sort_Type;
+
+    constructor(buf: ArrayBuffer) {
+        this.view = new DataView(buf);
+
+        const identifier = TEXT_DECODER.decode(buf.slice(0, 4));
+        const version = this.u16(4);
+        const type = this.u8(6);
+
+        let order_len = new Uint8Array(buf, 8, 16).indexOf(0);
+
+        if (order_len === -1) {
+            order_len = 16;
+        }
+
+        const order = TEXT_DECODER.decode(buf.slice(8, 8 + order_len)) as Sort_Order;
+
+        assert_eq(identifier, 'MTGI');
+        assert_eq(version, 2);
+        assert(type === 1 || type === 2);
+
+        this.order = order;
+        this.type = type;
+    }
+
+    sort(cards: Set<number>, asc: boolean): number[] {
+        const GROUP_TABLE_OFFSET = Index_Sorter.GROUP_TABLE_OFFSET;
+        const type = this.type;
+        const len = data.cards.length ?? 0;
+        const group_count = this.u32(Index_Sorter.GROUP_HEADER_OFFSET);
+        const groups_offset = GROUP_TABLE_OFFSET + 4 * group_count;
+
+        let invalid_idx_count = 0;
+        const result = [];
+
+        // Each index groups cards by some criterium. The sort direction determines the direction in
+        // which we traverse the groups, but not the direction in which we traverse the cards within
+        // each group. This ensures cards are always sorted by the given sort order and then by
+        // name.
+        for (let i = 0; i < group_count; i++) {
+            const group_idx = asc ? i : (group_count - 1 - i);
+            const group_start =
+                group_idx === 0 ? 0 : this.u32(GROUP_TABLE_OFFSET + 4 * (group_idx - 1));
+            const group_end = this.u32(GROUP_TABLE_OFFSET + 4 * group_idx);
+
+            for (let j = group_start; j < group_end; j++) {
+                const offset = groups_offset + 2 * type * j;
+                const card_idx = this.u16(offset);
+
+                if (card_idx >= len) {
+                    invalid_idx_count++;
+                    continue;
+                }
+
+                let idx = card_idx;
+
+                if (type === Sort_Type.BY_VERSION) {
+                    idx <<= 16;
+                    const version_idx = this.u16(offset + 2);
+                    idx |= version_idx;
+                }
+
+                if (cards.has(idx)) {
+                    result.push(card_idx);
+                }
+            }
+        }
+
+        if (invalid_idx_count > 0) {
+            Console_Logger.error(
+                `Sort index for order ${this.order} contains ${invalid_idx_count} card indexes.`
+            );
+        }
+
+        return result;
+    }
+
+    private u8(offset: number): number {
+        return this.view.getUint8(offset);
+    }
+
+    private u16(offset: number): number {
+        return this.view.getUint16(offset, true);
+    }
+
+    private u32(offset: number): number {
+        return this.view.getUint32(offset, true);
+    }
 }
 
 type Query = {
@@ -792,9 +967,9 @@ function parse_query(query_string: string): Query {
 type Operator = ':' | '=' | '!=' | '<' | '>' | '<=' | '>=';
 
 class Query_Parser {
-    private query_string = '';
-    private pos = 0;
-    private props = new Set<Prop>();
+    private query_string!: string;
+    private pos!: number;
+    private props!: Set<Prop>;
 
     parse(query_string: string): Query {
         this.query_string = query_string;
@@ -1630,7 +1805,7 @@ function simplify_query(query: Query): Query {
 }
 
 class Query_Simplifier {
-    private props: Set<Prop> = undefined as any as Set<Prop>;
+    private props!: Set<Prop>;
 
     simplify(query: Query): Query {
         this.props = new Set(query.props);
@@ -2119,8 +2294,6 @@ async function find_cards_matching_query(
     logger.log('query', query);
     logger.time('find_cards_matching_query_load');
 
-    const sort_index = SORT_ORDER_TO_INDEX[sort_order];
-
     // Fire off data loads.
     const required_for_query_promises = [];
     const required_for_display_promises = [];
@@ -2129,9 +2302,7 @@ async function find_cards_matching_query(
         required_for_query_promises.push(data.cards.load(prop));
     }
 
-    if (sort_index !== null) {
-        required_for_query_promises.push(data.load_sort_indices());
-    }
+    required_for_query_promises.push(data.load_sorter(sort_order));
 
     for (const prop of Array<Prop>('sfurl', 'img')) {
         required_for_display_promises.push(data.cards.load(prop));
@@ -2149,82 +2320,34 @@ async function find_cards_matching_query(
     }
 
     logger.time_end('find_cards_matching_query_load');
-    logger.time('find_cards_matching_query_execute');
+    logger.time('find_cards_matching_query_evaluate');
 
     const len = data.cards.length ?? 0;
-    let index_view = null;
+    const sorter = data.get_sorter(sort_order);
+    const add_version_idx = sorter.type === Sort_Type.BY_VERSION;
 
-    if (sort_index !== null && data.sort_indices !== null) {
-        const indices_view = new DataView(data.sort_indices);
-        const index_count = indices_view.getUint32(0, true);
+    const matching_cards = new Set<number>();
 
-        if (sort_index >= index_count) {
-            logger.error(
-                `Sort index ${sort_index} for order ${sort_order} is invalid, there are ${index_count} indices.`
-            );
-        } else {
-            const index_offset = indices_view.getUint32(4 + 4 * sort_index, true);
-            const next_index_offset = (sort_index === index_count - 1)
-                ? indices_view.byteLength
-                : indices_view.getUint32(4 + 4 * (sort_index + 1), true);
-            index_view = new DataView(
-                data.sort_indices,
-                index_offset,
-                next_index_offset - index_offset,
-            );
+    for (let card_idx = 0; card_idx < len; card_idx++) {
+        if (matches_query(card_idx, query, card_logger(card_idx))) {
+            let idx = card_idx;
+
+            if (add_version_idx) {
+                idx <<= 16;
+                // TODO: Version.
+                idx |= 0;
+            }
+
+            matching_cards.add(idx);
         }
     }
 
-    const result = [];
+    logger.time_end('find_cards_matching_query_evaluate');
+    logger.time('find_cards_matching_query_sort');
 
-    if (index_view === null) {
-        for (let i = 0; i < len; i++) {
-            const card_idx = sort_asc ? i : (len - 1 - i);
+    const result = sorter.sort(matching_cards, sort_asc);
 
-            if (matches_query(card_idx, query, card_logger(card_idx))) {
-                result.push(card_idx);
-            }
-        }
-    } else {
-        // Each index groups cards by some criterium. The sort direction determines the direction in
-        // which we traverse the groups, but not the direction in which we traverse the cards in
-        // each group. This ensures cards are always sorted by the given sort order and then by
-        // name.
-        const groups_table_len = index_view.getUint16(0, true);
-        const groups_table_offset = 2;
-        const groups_offset = groups_table_offset + 2 * groups_table_len;
-        let invalid_idx_count = 0;
-
-        for (let i = 0; i < groups_table_len; i++) {
-            const group_idx = sort_asc ? i : (groups_table_len - 1 - i);
-            const group_start = group_idx === 0
-                ? 0
-                : index_view.getUint16(groups_table_offset + 2 * (group_idx - 1), true);
-            const group_end = index_view.getUint16(groups_table_offset + 2 * group_idx, true);
-
-            for (let j = group_start; j < group_end; j++) {
-                const idx = groups_offset + 2 * j;
-                const card_idx = index_view.getUint16(idx, true);
-
-                if (card_idx >= len) {
-                    invalid_idx_count++;
-                    continue;
-                }
-
-                if (matches_query(card_idx, query, card_logger(card_idx))) {
-                    result.push(card_idx);
-                }
-            }
-        }
-
-        if (invalid_idx_count > 0) {
-            logger.error(
-                `Sort index ${sort_index} for order ${sort_order} contains ${invalid_idx_count} card indexes.`
-            );
-        }
-    }
-
-    logger.time_end('find_cards_matching_query_execute');
+    logger.time_end('find_cards_matching_query_sort');
     logger.time('find_cards_matching_query_load_display');
 
     // Await data loads necessary for display.
