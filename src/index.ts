@@ -20,6 +20,25 @@ type Prop =
     'type' |
     'type_search';
 
+const PROPS: Prop[] = ['colors',
+    'formats',
+    'identity',
+    'img',
+    'cost',
+    'cmc',
+    'name',
+    'name_search',
+    'name_inexact',
+    'oracle',
+    'oracle_search',
+    'rarity',
+    'released_at',
+    'reprint',
+    'set',
+    'sfurl',
+    'type',
+    'type_search',
+];
 const PER_VERSION_PROPS: Prop[] = ['rarity', 'released_at', 'reprint', 'set'];
 
 const MANA_WHITE = 'W';
@@ -3063,6 +3082,13 @@ async function run_test_suite() {
         '(mox) sapphire)',
         [],
     );
+
+    // Load all data in advance, so timings are more meaningful.
+    const loads = PROPS.map(p => data.cards.load(p));
+
+    for (const load of loads) {
+        await load;
+    }
 
     let executed = 0;
     let succeeded = 0;
