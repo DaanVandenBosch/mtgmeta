@@ -755,6 +755,17 @@ enum Sort_Type {
     BY_VERSION = 2,
 }
 
+function is_by_version_order(order: Sort_Order): boolean {
+    switch (order) {
+        case 'cmc':
+        case 'name':
+            return false;
+
+        case 'released_at':
+            return true;
+    }
+}
+
 interface Sorter {
     readonly order: Sort_Order;
     readonly type: Sort_Type;
@@ -2309,10 +2320,7 @@ async function find_cards_matching_query(
     logger.time('find_cards_matching_query_evaluate');
 
     const len = data.cards.length ?? 0;
-    // TODO: We could avoid waiting for the sorter if we had another way of determining the sort
-    //       type.
-    const sorter = await sorter_promise;
-    const add_version_idx = sorter.type === Sort_Type.BY_VERSION;
+    const add_version_idx = is_by_version_order(sort_order);
 
     const matching_cards = new Map<number, number>();
 
@@ -2329,6 +2337,11 @@ async function find_cards_matching_query(
     }
 
     logger.time_end('find_cards_matching_query_evaluate');
+    logger.time('find_cards_matching_query_load_sorter');
+
+    const sorter = await sorter_promise;
+
+    logger.time_end('find_cards_matching_query_load_sorter');
     logger.time('find_cards_matching_query_sort');
 
     const result = sorter.sort(matching_cards, sort_asc);
