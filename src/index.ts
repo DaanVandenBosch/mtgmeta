@@ -20,7 +20,8 @@ type Prop =
     'type' |
     'type_search';
 
-const PROPS: Prop[] = ['colors',
+const PROPS: Prop[] = [
+    'colors',
     'formats',
     'identity',
     'img',
@@ -415,13 +416,26 @@ async function init() {
 
     Console_Logger.time_end('init');
 
+    // Run tests and benchmarks if requested.
+    const tests_param_str = params.get('tests');
+    const tests_param = tests_param_str === null
+        ? null
+        : tests_param_str.toLocaleLowerCase('en') === 'true';
+    const benchmarks_param_str = params.get('benchmarks');
+    const benchmarks_param = benchmarks_param_str === null
+        ? null
+        : benchmarks_param_str.toLocaleLowerCase('en') === 'true';
+
     // Run tests when hostname is localhost or an IPv4 address or explicit parameter is passed.
-    const tests_param = params.get('tests')?.toLocaleLowerCase('en');
     const is_dev_host = window.location.hostname === 'localhost'
         || /^\d+\.\d+\.\d+\.\d+(:\d+)?$/g.test(window.location.hostname);
 
-    if (tests_param === 'true' || (is_dev_host && tests_param !== 'false')) {
-        run_test_suite();
+    if (tests_param === true || (is_dev_host && tests_param === null)) {
+        await run_test_suite();
+    }
+
+    if (benchmarks_param === true) {
+        await run_benchmarks();
     }
 }
 
@@ -767,6 +781,575 @@ async function filter(logger: Logger) {
     logger.time_end('filter_render');
     logger.time_end('filter');
     logger.group_end();
+}
+
+function round_up_to_pow2_u32(n: number): number {
+    n--;
+    n |= n >>> 1;
+    n |= n >>> 2;
+    n |= n >>> 4;
+    n |= n >>> 8;
+    n++;
+    return n;
+}
+
+/** Counts the number of bits set in a 32-bit integer. */
+function pop_count_32(n: number): number {
+    n = n - ((n >>> 1) & 0x55555555);
+    n = (n & 0x33333333) + ((n >>> 2) & 0x33333333);
+    return ((n + (n >>> 4) & 0xF0F0F0F) * 0x1010101) >>> 24;
+}
+
+const memory = new ArrayBuffer(256 * 1024);
+
+/** Set optimized for unsigned integers. */
+interface Uint_Set {
+    size: number;
+
+    uninitialized_copy(): Uint_Set;
+    copy(): Uint_Set;
+    copy_into(other: this): void;
+    has(value: number): boolean;
+    first_or_null(): number | null;
+    insert(value: number): void;
+    delete(value: number): void;
+    clear(): void;
+    union(other: this): void;
+    diff(other: this): void;
+}
+
+class Bitset implements Uint_Set {
+    static readonly MAX_CAP = 1024;
+    static readonly mem = new Uint32Array(memory);
+    static mem_offset = 0;
+
+    static reset_mem() {
+        this.mem_offset = 0;
+    }
+
+    static with_cap(cap: number): Bitset {
+        if (cap > Bitset.MAX_CAP) {
+            throw Error(`Size ${cap} greater than maximum capacity of ${Bitset.MAX_CAP}.`);
+        }
+
+        const bit_size = round_up_to_pow2_u32(cap);
+        const len = (bit_size + 31) >>> 5;
+        const new_set = new Bitset(cap, len);
+        new_set.clear();
+        return new_set;
+    }
+
+    /** Offset into memory. */
+    m_off: number;
+    /** Memory end. */
+    m_end: number;
+    cap: number;
+    size: number;
+
+    constructor(cap: number, len: number) {
+        if (Bitset.mem_offset + len > Bitset.mem.byteLength) {
+            throw Error(`Out of bitset memory.`);
+        }
+
+        this.m_off = Bitset.mem_offset;
+        Bitset.mem_offset += len;
+        this.m_end = Bitset.mem_offset;
+        this.cap = cap;
+        this.size = 0;
+    }
+
+    uninitialized_copy(): Bitset {
+        return new Bitset(this.cap, this.m_end - this.m_off);
+    }
+
+    copy(): Bitset {
+        const new_set = this.uninitialized_copy();
+        this.copy_into(new_set);
+        return new_set;
+    }
+
+    copy_into(other: Bitset) {
+        if (this.cap !== other.cap) {
+            throw Error(`Capacities ${this.cap} and ${other.cap} don't match.`);
+        }
+
+        Bitset.mem.copyWithin(other.m_off, this.m_off, this.m_end);
+        other.size = this.size;
+    }
+
+    has(value: number): boolean {
+        const slot_offset = value >>> 5;
+        const slot = Bitset.mem[this.m_off + slot_offset];
+        const bit_mask = 1 << (value & 0b11111);
+        return (slot & bit_mask) !== 0;
+    }
+
+    first_or_null(): number | null {
+        if (this.size === 0) {
+            return null;
+        }
+
+        const m_end = this.m_end;
+
+        for (let i = this.m_off; i < m_end; i++) {
+            const slot = Bitset.mem[i];
+
+            for (let j = 0; j < 32; j++) {
+                const bit_mask = 1 << j;
+
+                if ((slot & bit_mask) !== 0) {
+                    return i * 32 + j;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    insert(value: number) {
+        if (value < 0 || value >= this.cap) {
+            throw Error(`Value ${value} out of bounds for capacity ${this.cap}.`);
+        }
+
+        const slot_offset = value >>> 5;
+        const slot = Bitset.mem[this.m_off + slot_offset];
+        const bit_mask = 1 << (value & 0b11111);
+        const new_slot = slot | bit_mask;
+        Bitset.mem[this.m_off + slot_offset] = new_slot;
+
+        if (new_slot !== slot) {
+            this.size += 1;
+        }
+    }
+
+    fill() {
+        const m_end = this.m_end;
+        const cap = this.cap;
+        Bitset.mem.fill(0xFFFFFFFF, this.m_off, m_end - 1);
+        Bitset.mem[m_end - 1] = (1 << (cap & 0b11111)) - 1;
+        this.size = cap;
+    }
+
+    delete(value: number) {
+        if (value < 0 || value >= this.cap) {
+            throw Error(`Value ${value} out of bounds for capacity ${this.cap}.`);
+        }
+
+        const slot_offset = value >>> 5;
+        const slot = Bitset.mem[this.m_off + slot_offset];
+        const bit_mask = 1 << (value & 0b11111);
+        const new_slot = slot & ~bit_mask;
+        Bitset.mem[this.m_off + slot_offset] = new_slot;
+
+        if (new_slot !== slot) {
+            this.size -= 1;
+        }
+    }
+
+    clear() {
+        Bitset.mem.fill(0, this.m_off, this.m_end);
+        this.size = 0;
+    }
+
+    invert() {
+        const m_end = this.m_end;
+        const cap = this.cap;
+
+        for (let i = this.m_off; i < m_end - 1; i++) {
+            Bitset.mem[i] = ~Bitset.mem[i];
+        }
+
+        Bitset.mem[m_end - 1] = ~Bitset.mem[m_end - 1] & ((1 << (cap & 0b11111)) - 1);
+        this.size = cap - this.size;
+    }
+
+    union(other: Bitset) {
+        if (this.cap !== other.cap) {
+            throw Error(`Capacities ${this.cap} and ${other.cap} don't match.`);
+        }
+
+        const m_off = this.m_off;
+        const m_end = this.m_end;
+        const other_m_off = other.m_off;
+        const end = m_end - m_off;
+        let size = 0;
+
+        for (let i = 0; i < end; i++) {
+            let slot = Bitset.mem[m_off + i];
+            slot |= Bitset.mem[other_m_off + i];
+            size += pop_count_32(slot);
+            Bitset.mem[m_off + i] = slot;
+        }
+
+        this.size = size;
+    }
+
+    diff(other: Bitset) {
+        if (this.cap !== other.cap) {
+            throw Error(`Capacities ${this.cap} and ${other.cap} don't match.`);
+        }
+
+        const m_off = this.m_off;
+        const m_end = this.m_end;
+        const other_m_off = other.m_off;
+        const end = m_end - m_off;
+        let size = 0;
+
+        for (let i = 0; i < end; i++) {
+            let slot = Bitset.mem[m_off + i];
+            slot &= ~Bitset.mem[other_m_off + i];
+            size += pop_count_32(slot);
+            Bitset.mem[m_off + i] = slot;
+        }
+
+        this.size = size;
+    }
+}
+
+class Bitset_32 implements Uint_Set {
+    static readonly MAX_CAP = 32;
+
+    static with_cap(cap: number): Bitset_32 {
+        if (cap > Bitset_32.MAX_CAP) {
+            throw Error(`Size ${cap} greater than maximum capacity of ${Bitset_32.MAX_CAP}.`);
+        }
+
+        return new Bitset_32(0, cap, 0);
+    }
+
+    values: number;
+    cap: number;
+    size: number;
+
+    constructor(values: number, cap: number, size: number) {
+        this.values = values;
+        this.cap = cap;
+        this.size = size;
+    }
+
+    uninitialized_copy(): Bitset_32 {
+        return new Bitset_32(0, this.cap, 0);
+    }
+
+    copy(): Bitset_32 {
+        return new Bitset_32(this.values, this.cap, this.size);
+    }
+
+    copy_into(other: Bitset_32) {
+        if (this.cap !== other.cap) {
+            throw Error(`Capacities ${this.cap} and ${other.cap} don't match.`);
+        }
+
+        other.values = this.values;
+        other.size = this.size;
+    }
+
+    has(value: number): boolean {
+        return (this.values & (1 << value)) !== 0;
+    }
+
+    first_or_null(): number | null {
+        if (this.size === 0) {
+            return null;
+        }
+
+        const cap = this.cap;
+        const values = this.values;
+
+        for (let value = 0; value < cap; value++) {
+            if ((values & (1 << value)) !== 0) {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    insert(value: number) {
+        if (value < 0 || value >= this.cap) {
+            throw Error(`Value ${value} out of bounds for capacity ${this.cap}.`);
+        }
+
+        const values = this.values;
+        const new_values = values | (1 << value);
+        this.values = new_values;
+
+        if (new_values !== values) {
+            this.size += 1;
+        }
+    }
+
+    fill() {
+        const cap = this.cap;
+        this.values = (1 << cap) - 1;
+        this.size = cap;
+    }
+
+    delete(value: number) {
+        if (value < 0 || value >= this.cap) {
+            throw Error(`Value ${value} out of bounds for capacity ${this.cap}.`);
+        }
+
+        const values = this.values;
+        const new_values = values & ~(1 << value);
+        this.values = new_values;
+
+        if (new_values !== values) {
+            this.size -= 1;
+        }
+    }
+
+    clear() {
+        this.values = 0;
+        this.size = 0;
+    }
+
+    invert() {
+        const cap = this.cap;
+        this.values = ~this.values & ((1 << cap) - 1);
+        this.size = cap - this.size;
+    }
+
+    union(other: Bitset_32) {
+        if (this.cap !== other.cap) {
+            throw Error(`Capacities ${this.cap} and ${other.cap} don't match.`);
+        }
+
+        let values = this.values | other.values;
+        this.values = values;
+        this.size = pop_count_32(values);
+    }
+
+    diff(other: Bitset_32) {
+        if (this.cap !== other.cap) {
+            throw Error(`Capacities ${this.cap} and ${other.cap} don't match.`);
+        }
+
+        let values = this.values & ~other.values;
+        this.values = values;
+        this.size = pop_count_32(values);
+    }
+}
+
+class Array_Set implements Uint_Set {
+    static readonly CAP = 1024;
+    static readonly mem = new Uint16Array(memory);
+    static mem_offset = 0;
+
+    static reset_mem() {
+        this.mem_offset = 0;
+    }
+
+    offset: number;
+    size: number;
+
+    constructor() {
+        const mem_offset = Array_Set.mem_offset;
+
+        if (mem_offset >= Array_Set.mem.byteLength) {
+            throw Error(`Max sets reached.`);
+        }
+
+        this.offset = mem_offset;
+        Array_Set.mem_offset = mem_offset + Array_Set.CAP;
+        this.size = 0;
+    }
+
+    copy(): Array_Set {
+        const new_set = new Array_Set();
+        this.copy_into(new_set);
+        return new_set;
+    }
+
+    uninitialized_copy(): Array_Set {
+        return new Array_Set();
+    }
+
+    copy_into(other: Array_Set) {
+        const offset = this.offset;
+        const size = this.size;
+        Array_Set.mem.copyWithin(other.offset, offset, offset + size);
+        other.size = size;
+    }
+
+    has(value: number): boolean {
+        const offset = this.offset;
+        const end = offset + this.size;
+
+        for (let i = offset; i < end; i++) {
+            const v = Array_Set.mem[i];
+
+            if (v === value) {
+                return true;
+            } else if (v > value) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    at(idx: number): number {
+        return Array_Set.mem[this.offset + idx];
+    }
+
+    first_or_null(): number | null {
+        if (this.size === 0) {
+            return null;
+        }
+
+        return Array_Set.mem[this.offset];
+    }
+
+    insert(value: number) {
+        const offset = this.offset;
+        const size = this.size;
+        const end = offset + size;
+
+        if (size >= Array_Set.CAP) {
+            throw Error(`Capacity reached.`);
+        }
+
+        for (let i = offset; i < end; i++) {
+            const v = Array_Set.mem[i];
+
+            if (v === value) {
+                return;
+            } else if (v > value) {
+                Array_Set.mem.copyWithin(i + 1, i, end);
+                Array_Set.mem[i] = value;
+                this.size = size + 1;
+                return;
+            }
+        }
+
+        Array_Set.mem[end] = value;
+        this.size = size + 1;
+    }
+
+    insert_unchecked(value: number) {
+        const size = this.size;
+
+        if (size >= Array_Set.CAP) {
+            throw Error(`Capacity reached.`);
+        }
+
+        Array_Set.mem[this.offset + size] = value;
+        this.size = size + 1;
+    }
+
+    fill_to(cap: number) {
+        if (cap >= Array_Set.CAP) {
+            throw Error(`Capacity reached.`);
+        }
+
+        const offset = this.offset;
+
+        for (let value = 0; value < cap; value++) {
+            Array_Set.mem[offset + value] = value;
+        }
+
+        this.size = cap;
+    }
+
+    delete(value: number) {
+        const offset = this.offset;
+        const size = this.size;
+        const end = offset + size;
+
+        for (let i = offset; i < end; i++) {
+            const v = Array_Set.mem[i];
+
+            if (v === value) {
+                Array_Set.mem.copyWithin(i, i + 1, end);
+                this.size = size - 1;
+                return;
+            } else if (v > value) {
+                // Value not in the set.
+                return;
+            }
+        }
+    }
+
+    delete_at(idx: number) {
+        const offset = this.offset;
+        const value_offset = offset + idx;
+        const size = this.size;
+        Array_Set.mem.copyWithin(value_offset, value_offset + 1, offset + size);
+        this.size = size - 1;
+    }
+
+    clear() {
+        this.size = 0;
+    }
+
+    union(other: Array_Set) {
+        const offset = this.offset;
+        const other_offset = other.offset;
+        let size = this.size;
+        const other_end = other_offset + other.size;
+        let i = offset;
+
+        outer: for (let j = other_offset; j < other_end; j++) {
+            const other_value = Array_Set.mem[j];
+
+            for (; ;) {
+                if (i >= offset + size) {
+                    Array_Set.mem.copyWithin(i, j, other_end);
+                    size += other_end - j;
+                    break outer;
+                }
+
+                const value = Array_Set.mem[i];
+
+                if (other_value === value) {
+                    i++;
+                    break;
+                } else if (other_value < value) {
+                    Array_Set.mem.copyWithin(i + 1, i, offset + size);
+                    Array_Set.mem[i] = other_value;
+                    size += 1;
+                    i++;
+                    break;
+                } else {
+                    i++;
+                }
+            }
+        }
+
+        this.size = size;
+    }
+
+    diff(other: Array_Set) {
+        const offset = this.offset;
+        const other_offset = other.offset;
+        let size = this.size;
+        let i = offset + size - 1;
+
+        outer: for (let j = other_offset + other.size - 1; j >= other_offset; j--) {
+            const other_value = Array_Set.mem[j];
+
+            for (; ;) {
+                if (i < offset) {
+                    break outer;
+                }
+
+                const value = Array_Set.mem[i];
+
+                if (other_value === value) {
+                    Array_Set.mem.copyWithin(i, i + 1, offset + size);
+                    size -= 1;
+                    break;
+                } else if (other_value > value) {
+                    break;
+                } else {
+                    i--;
+                }
+            }
+        }
+
+        this.size = size;
+    }
 }
 
 enum Sort_Type {
@@ -2340,18 +2923,23 @@ async function find_cards_matching_query(
 
     const len = data.cards.length ?? 0;
     const add_version_idx = is_by_version_order(sort_order);
+    const evaluator = new Query_Evaluator(query, true, true);
 
     const matching_cards = new Map<number, number>();
 
     for (let card_idx = 0; card_idx < len; card_idx++) {
-        if (matches_query(card_idx, query, card_logger(card_idx))) {
-            let version_idx = 0;
+        try {
+            const result = evaluator.evaluate(card_idx, card_logger(card_idx));
+            const version_idx = result.first_or_null();
 
-            if (add_version_idx) {
-                // TODO: Version.
+            if (version_idx !== null) {
+                matching_cards.set(card_idx, add_version_idx ? version_idx : 0);
             }
-
-            matching_cards.set(card_idx, version_idx);
+        } catch (e) {
+            throw Error(
+                `Couldn't evaluate query with "${data.cards.name(card_idx)}".`,
+                { cause: e },
+            );
         }
     }
 
@@ -2382,62 +2970,74 @@ async function find_cards_matching_query(
     };
 }
 
-function matches_query(card_idx: number, query: Query, logger: Logger): boolean {
-    try {
-        return new Query_Evaluator().evaluate(query, card_idx, logger);
-    } catch (e) {
-        throw Error(`Couldn't evaluate query with "${data.cards.name(card_idx)}".`, { cause: e });
-    }
-}
-
 class Query_Evaluator {
+    private readonly query: Query;
+    private readonly bitset: boolean;
+    private readonly small_set_optimization: boolean;
     private card_idx: number = 0;
     private logger: Logger = Nop_Logger;
 
-    evaluate(query: Query, card_idx: number, logger: Logger): boolean {
+    constructor(query: Query, bitset: boolean, small_set_optimization: boolean) {
+        this.query = query;
+        this.bitset = bitset;
+        this.small_set_optimization = small_set_optimization;
+    }
+
+    evaluate(card_idx: number, logger: Logger): Uint_Set {
         this.card_idx = card_idx;
         this.logger = logger;
 
         const name = data.cards.name(card_idx);
-
-        // TODO: Do the per version properties in a faster way (keep a set of matching versions and
-        //       have nested properties reset/invert the set if necessary?).
-        const per_version = query.props.some(p => PER_VERSION_PROPS.includes(p));
-        const version_count = per_version ? data.cards.version_count(card_idx) : 1;
-        assert(version_count !== null);
+        const version_count = data.cards.version_count(card_idx) ?? 1;
 
         logger.log(`evaluating query with "${name}"`, card_idx, `versions: ${version_count}`);
 
-        for (let version_idx = 0; version_idx < version_count; version_idx++) {
-            if (this.evaluate_condition(query.condition, version_idx)) {
-                return true;
-            }
+        let version_idxs;
+        let set_type;
+
+        if (this.small_set_optimization && version_count <= 32) {
+            version_idxs = Bitset_32.with_cap(version_count);
+            version_idxs.fill();
+            set_type = 0;
+        } else if (this.bitset) {
+            Bitset.reset_mem();
+            version_idxs = Bitset.with_cap(version_count);
+            version_idxs.fill();
+            set_type = 1;
+        } else {
+            Array_Set.reset_mem();
+            version_idxs = new Array_Set();
+            version_idxs.fill_to(version_count);
+            set_type = 2;
         }
 
-        return false;
+        this.evaluate_condition(this.query.condition, version_idxs, set_type);
+
+        return version_idxs;
     }
 
-    /** Returns true if any face of the card matches the condition. */
-    private evaluate_condition(condition: Condition, version_idx: number): boolean {
+    private evaluate_condition(condition: Condition, version_idxs: Uint_Set, set_type: number) {
         this.logger.group(condition.type, condition);
-
-        let result;
 
         switch (condition.type) {
             case 'true': {
-                result = true;
                 break;
             }
             case 'false': {
-                result = false;
+                version_idxs.clear();
                 break;
             }
             case 'or': {
-                result = false;
+                const idxs = version_idxs.copy();
+                const sub_idxs = version_idxs.copy();
+                version_idxs.clear();
 
                 for (const cond of condition.conditions) {
-                    if (this.evaluate_condition(cond, version_idx)) {
-                        result = true;
+                    idxs.copy_into(sub_idxs);
+                    this.evaluate_condition(cond, sub_idxs, set_type);
+                    version_idxs.union(sub_idxs);
+
+                    if (version_idxs.size === idxs.size) {
                         break;
                     }
                 }
@@ -2445,11 +3045,10 @@ class Query_Evaluator {
                 break;
             }
             case 'and': {
-                result = true;
-
                 for (const cond of condition.conditions) {
-                    if (!this.evaluate_condition(cond, version_idx)) {
-                        result = false;
+                    this.evaluate_condition(cond, version_idxs, set_type);
+
+                    if (version_idxs.size === 0) {
                         break;
                     }
                 }
@@ -2457,25 +3056,135 @@ class Query_Evaluator {
                 break;
             }
             case 'not': {
-                result = !this.evaluate_condition(condition.condition, version_idx);
+                const sub_idxs = version_idxs.copy();
+                this.evaluate_condition(condition.condition, sub_idxs, set_type);
+                version_idxs.diff(sub_idxs);
                 break;
             }
             default: {
-                result = this.evaluate_property_condition(condition, version_idx);
+                switch (set_type) {
+                    case 0:
+                        this.evaluate_property_condition_bitset_32(
+                            condition,
+                            version_idxs as Bitset_32,
+                        );
+                        break;
+                    case 1:
+                        this.evaluate_property_condition_bitset(
+                            condition,
+                            version_idxs as Bitset,
+                        );
+                        break;
+                    case 2:
+                        this.evaluate_property_condition_array_set(
+                            condition,
+                            version_idxs as Array_Set,
+                        );
+                        break;
+                    default:
+                        unreachable();
+                }
+
                 break;
             }
         }
 
-        this.logger.log('result', result);
+        this.logger.log('result', version_idxs);
         this.logger.group_end();
-
-        return result;
     }
 
-    private evaluate_property_condition(
+    private evaluate_property_condition_bitset_32(
+        condition: Comparison_Condition | Substring_Condition | Predicate_Condition | Range_Condition,
+        version_idxs: Bitset_32,
+    ) {
+        if (PER_VERSION_PROPS.includes(condition.prop)) {
+            let values = version_idxs.values;
+            const cap = version_idxs.cap;
+            let size = version_idxs.size;
+
+            for (let version_idx = 0; version_idx < cap; version_idx++) {
+                const bit_mask = 1 << version_idx;
+
+                if ((values & bit_mask) === 0) {
+                    continue;
+                }
+
+                if (!this.evaluate_property_condition_with_version(condition, version_idx)) {
+                    values &= ~bit_mask;
+                    size -= 1;
+                }
+            }
+
+            version_idxs.values = values;
+            version_idxs.size = size;
+        } else if (!this.evaluate_property_condition_with_version(condition, 0)) {
+            version_idxs.clear();
+        }
+    }
+
+    private evaluate_property_condition_bitset(
+        condition: Comparison_Condition | Substring_Condition | Predicate_Condition | Range_Condition,
+        version_idxs: Bitset,
+    ) {
+        if (PER_VERSION_PROPS.includes(condition.prop)) {
+            const m_off = version_idxs.m_off;
+            const len = version_idxs.m_end - m_off;
+            let bits_left = version_idxs.cap;
+            let size = version_idxs.size;
+
+            for (let i = 0; i < len; i++, bits_left -= 32) {
+                let slot = Bitset.mem[m_off + i];
+
+                if (slot === 0) {
+                    continue;
+                }
+
+                let bits_end = slot === 0 ? 0 : Math.min(bits_left, 32);
+
+                for (let j = 0; j < bits_end; j++) {
+                    if ((slot & (1 << j)) === 0) {
+                        continue;
+                    }
+
+                    const version_idx = i * 32 + j;
+
+                    if (!this.evaluate_property_condition_with_version(condition, version_idx)) {
+                        slot &= ~(1 << j);
+                        size -= 1;
+                    }
+                }
+
+                Bitset.mem[m_off + i] = slot;
+            }
+
+            version_idxs.size = size;
+        } else if (!this.evaluate_property_condition_with_version(condition, 0)) {
+            version_idxs.clear();
+        }
+    }
+
+    private evaluate_property_condition_array_set(
+        condition: Comparison_Condition | Substring_Condition | Predicate_Condition | Range_Condition,
+        version_idxs: Array_Set,
+    ) {
+        if (PER_VERSION_PROPS.includes(condition.prop)) {
+            for (let i = version_idxs.size; i > 0;) {
+                i--;
+                const version_idx = version_idxs.at(i);
+
+                if (!this.evaluate_property_condition_with_version(condition, version_idx)) {
+                    version_idxs.delete_at(i);
+                }
+            }
+        } else if (!this.evaluate_property_condition_with_version(condition, 0)) {
+            version_idxs.clear();
+        }
+    }
+
+    private evaluate_property_condition_with_version(
         condition: Comparison_Condition | Substring_Condition | Predicate_Condition | Range_Condition,
         version_idx: number,
-    ) {
+    ): boolean {
         let values: any = data.cards.get_for_version(this.card_idx, version_idx, condition.prop);
 
         if (!Array.isArray(values)) {
@@ -2706,6 +3415,361 @@ async function run_test_suite() {
             }
         });
     }
+
+    test('pop_count_32', () => {
+        assert_eq(pop_count_32(0), 0);
+        assert_eq(pop_count_32(1), 1);
+        assert_eq(pop_count_32(0xFFFFFFFF), 32);
+        assert_eq(pop_count_32(0x80000000), 1);
+        assert_eq(pop_count_32(0b10101010), 4);
+        assert_eq(pop_count_32(0b111000), 3);
+    });
+
+    test('Bitset is instantiated correctly.', () => {
+        Bitset.reset_mem();
+
+        for (let i = 0; i < 32; i++) {
+            Bitset.mem[i] = 0xFFFFFFFF;
+        }
+
+        const s = Bitset.with_cap(1000);
+        assert_eq(s.m_off, 0);
+        assert_eq(s.m_end, 32);
+        assert_eq(s.cap, 1000);
+        assert_eq(s.size, 0);
+
+        for (let i = s.m_off; i < s.m_end; i++) {
+            assert_eq(Bitset.mem[i], 0);
+        }
+    });
+
+    test('Bitset fill.', () => {
+        Bitset.reset_mem();
+        const s = Bitset.with_cap(40);
+        s.fill();
+
+        assert_eq(s.size, 40);
+
+        for (let i = 0; i < 40; i++) {
+            assert(s.has(i));
+        }
+
+        // Only 8 bits of the last u32 should be set.
+        assert_eq(Bitset.mem[s.m_end - 1], 0xFF);
+    });
+
+    test('Bitset delete.', () => {
+        Bitset.reset_mem();
+        const s = Bitset.with_cap(40);
+        s.fill();
+
+        s.delete(20);
+        s.delete(39);
+
+        assert_eq(s.size, 38);
+
+        for (let i = 0; i < 20; i++) {
+            assert(s.has(i));
+        }
+
+        assert(!s.has(20));
+
+        for (let i = 21; i < 38; i++) {
+            assert(s.has(i));
+        }
+
+        assert(!s.has(39));
+    });
+
+    test('Bitset invert.', () => {
+        Bitset.reset_mem();
+        const s = Bitset.with_cap(36);
+
+        for (let i = 0; i < 36; i++) {
+            if (i % 3 === 0) {
+                s.insert(i);
+            }
+        }
+
+        s.invert();
+
+        assert_eq(s.size, 24);
+
+        for (let i = 0; i < 36; i++) {
+            if (i % 3 === 0) {
+                assert(!s.has(i));
+            } else {
+                assert(s.has(i));
+            }
+        }
+
+        // Only 3 bits of the last u32 should be set.
+        assert_eq(Bitset.mem[s.m_end - 1], 0b1101);
+    });
+
+    test('Bitset union_in.', () => {
+        Bitset.reset_mem();
+        const a = Bitset.with_cap(35);
+        const b = Bitset.with_cap(35);
+
+        a.insert(0);
+        a.insert(3);
+
+        b.insert(1);
+        b.insert(4);
+        b.insert(7);
+        b.insert(33);
+
+        a.union(b);
+
+        assert_eq(a.size, 6);
+
+        assert(a.has(0));
+        assert(a.has(1));
+        assert(!a.has(2));
+        assert(a.has(3));
+        assert(a.has(4));
+        assert(!a.has(5));
+        assert(!a.has(6));
+        assert(a.has(7));
+
+        for (let i = 8; i < 33; i++) {
+            assert(!a.has(i));
+        }
+
+        assert(a.has(33));
+        assert(!a.has(34));
+    });
+
+    test('Bitset diff_in.', () => {
+        Bitset.reset_mem();
+        const a = Bitset.with_cap(40);
+        const b = Bitset.with_cap(40);
+
+        for (let i = 0; i < 40; i++) {
+            if (i % 2 === 0) {
+                a.insert(i);
+            }
+
+            if (i % 3 === 0) {
+                b.insert(i);
+            }
+        }
+
+        a.diff(b);
+
+        for (let i = 0; i < 40; i++) {
+            if (i % 2 === 0 && i % 3 !== 0) {
+                assert(a.has(i));
+            } else {
+                assert(!a.has(i));
+            }
+        }
+    });
+
+    test('Bitset_32 is instantiated correctly.', () => {
+        const s = Bitset_32.with_cap(20);
+        assert_eq(s.values, 0);
+        assert_eq(s.cap, 20);
+        assert_eq(s.size, 0);
+    });
+
+    test('Bitset_32 fill.', () => {
+        const s = Bitset_32.with_cap(20);
+        s.fill();
+
+        assert_eq(s.size, 20);
+
+        for (let i = 0; i < 20; i++) {
+            assert(s.has(i));
+        }
+
+        // Only 20 bits should be set.
+        assert_eq(s.values, 0xFFFFF);
+    });
+
+    test('Bitset_32 delete.', () => {
+        const s = Bitset_32.with_cap(20);
+        s.fill();
+
+        s.delete(10);
+        s.delete(15);
+
+        assert_eq(s.size, 18);
+
+        for (let i = 0; i < 20; i++) {
+            if (i === 10 || i === 15) {
+                assert(!s.has(i));
+            } else {
+                assert(s.has(i));
+            }
+        }
+    });
+
+    test('Bitset_32 invert.', () => {
+        const s = Bitset_32.with_cap(30);
+
+        for (let i = 0; i < 30; i++) {
+            if (i % 3 === 0) {
+                s.insert(i);
+            }
+        }
+
+        s.invert();
+
+        assert_eq(s.size, 20);
+
+        for (let i = 0; i < 30; i++) {
+            if (i % 3 === 0) {
+                assert(!s.has(i));
+            } else {
+                assert(s.has(i));
+            }
+        }
+
+        assert_eq(s.values, 0b110110110110110110110110110110);
+    });
+
+    test('Bitset_32 union_in.', () => {
+        const a = Bitset_32.with_cap(25);
+        const b = Bitset_32.with_cap(25);
+
+        a.insert(0);
+        a.insert(1);
+        a.insert(3);
+        a.insert(7);
+
+        b.insert(1);
+        b.insert(4);
+        b.insert(7);
+        b.insert(21);
+
+        a.union(b);
+
+        assert_eq(a.size, 6);
+
+        for (let i = 0; i < 25; i++) {
+            if ([0, 1, 3, 4, 7, 21].includes(i)) {
+                assert(a.has(i));
+            } else {
+                assert(!a.has(i));
+            }
+        }
+    });
+
+    test('Bitset_32 diff_in.', () => {
+        const a = Bitset_32.with_cap(32);
+        const b = Bitset_32.with_cap(32);
+
+        for (let i = 0; i < 32; i++) {
+            if (i % 2 === 0) {
+                a.insert(i);
+            }
+
+            if (i % 3 === 0) {
+                b.insert(i);
+            }
+        }
+
+        a.diff(b);
+
+        for (let i = 0; i < 32; i++) {
+            if (i % 2 === 0 && i % 3 !== 0) {
+                assert(a.has(i));
+            } else {
+                assert(!a.has(i));
+            }
+        }
+    });
+
+    test('Array_Set is instantiated correctly.', () => {
+        Array_Set.reset_mem();
+
+        const s = new Array_Set;
+        assert_eq(s.offset, 0);
+        assert_eq(s.size, 0);
+    });
+
+    test('Array_Set delete.', () => {
+        Array_Set.reset_mem();
+        const s = new Array_Set;
+
+        for (let i = 0; i < 40; i++) {
+            s.insert_unchecked(i);
+        }
+
+        s.delete(20);
+        s.delete(39);
+
+        assert_eq(s.size, 38);
+
+        for (let i = 0; i < 20; i++) {
+            assert(s.has(i));
+        }
+
+        assert(!s.has(20));
+
+        for (let i = 21; i < 38; i++) {
+            assert(s.has(i));
+        }
+
+        assert(!s.has(39));
+    });
+
+    test('Array_Set union_in.', () => {
+        Array_Set.reset_mem();
+        const a = new Array_Set;
+        const b = new Array_Set;
+
+        a.insert_unchecked(1);
+        a.insert_unchecked(3);
+        a.insert_unchecked(8);
+        a.insert_unchecked(9);
+        a.insert_unchecked(10);
+
+        b.insert_unchecked(0);
+        b.insert_unchecked(4);
+        b.insert_unchecked(7);
+        b.insert_unchecked(25);
+
+        a.union(b);
+
+        assert_eq(a.size, 9);
+
+        for (let i = 0; i <= 25; i++) {
+            if ([0, 1, 3, 4, 7, 8, 9, 10, 25].includes(i)) {
+                assert(a.has(i));
+            } else {
+                assert(!a.has(i));
+            }
+        }
+    });
+
+    test('Array_Set diff_in.', () => {
+        Array_Set.reset_mem();
+        const a = new Array_Set;
+        const b = new Array_Set;
+
+        for (let i = 0; i < 40; i++) {
+            if (i % 2 === 0) {
+                a.insert(i);
+            }
+
+            if (i % 3 === 0) {
+                b.insert(i);
+            }
+        }
+
+        a.diff(b);
+
+        for (let i = 0; i < 40; i++) {
+            if (i % 2 === 0 && i % 3 !== 0) {
+                assert(a.has(i));
+            } else {
+                assert(!a.has(i));
+            }
+        }
+    });
 
     test_query(
         'name, ignore punctuation',
@@ -3090,7 +4154,7 @@ async function run_test_suite() {
     for (const load of loads) {
         await load;
     }
-    
+
     Console_Logger.time_end('run_test_suite_setup');
     Console_Logger.time('run_test_suite_execute');
 
@@ -3134,6 +4198,119 @@ async function run_test_suite() {
         Console_Logger.info(`Ran ${executed} tests, ${failed} failed.`);
         alert(`${failed} Tests failed!`);
     }
+}
+
+function time_to_string(time: number): string {
+    const m = Math.floor(time / 60_000);
+    const s = Math.floor(time / 1_000) - m * 60;
+    const ms = time - s * 1000 - m * 60_000;
+    const m_str = m.toString().padStart(2, '0');
+    const s_str = s.toString().padStart(2, '0');
+    const ms_str = ms.toString().padStart(3, '0');
+    return `${m_str}:${s_str}.${ms_str}`;
+}
+
+async function run_benchmarks() {
+    const benchmarks: { name: string, set_up: () => any, execute: (input: any) => number }[] = [];
+
+    function benchmark<T>(name: string, set_up: () => T, execute: (input: T) => number) {
+        benchmarks.push({ name, set_up, execute });
+    }
+
+    function query_evaluator_benchmark(
+        name: string,
+        bitset: boolean,
+        small_set_optimization: boolean,
+    ) {
+        benchmark(
+            name,
+            () => new Query_Evaluator(
+                simplify_query(
+                    combine_queries_with_conjunction(
+                        parse_query('year>=2000'),
+                        POOLS[POOL_PREMODERN_PAUPER_COMMANDER],
+                    )
+                ),
+                bitset,
+                small_set_optimization,
+            ),
+            evaluator => {
+                const len = data.cards.length!;
+                let result = 0;
+
+                for (let card_idx = 0; card_idx < len; card_idx++) {
+                    const version_idx = evaluator.evaluate(card_idx, Nop_Logger).first_or_null();
+                    result = (result + (version_idx ?? 0)) & 0xFFFFFFFF;
+                }
+
+                return result;
+            },
+        );
+    }
+
+    query_evaluator_benchmark('Array_Set', false, false);
+    query_evaluator_benchmark('Bitset', true, false);
+    query_evaluator_benchmark('Array_Set small set optimization', false, true);
+    query_evaluator_benchmark('Bitset small set optimization', true, true);
+
+    Console_Logger.info('Running benchmarks.');
+
+    // Load all data in advance.
+    const loads = PROPS.map(p => data.cards.load(p));
+
+    for (const load of loads) {
+        await load;
+    }
+
+    const WARM_UP_ITERATIONS = 100;
+    const ITERATIONS = 1000;
+
+    for (const benchmark of benchmarks) {
+        Console_Logger.group(`Running benchmark "${benchmark.name}".`);
+
+        const input = benchmark.set_up();
+
+        // We use this total result value to avoid the JIT from completely optimizing code away.
+        let total_result = 0;
+
+        for (let i = 0; i < WARM_UP_ITERATIONS; i++) {
+            const result = benchmark.execute(input);
+            total_result = (total_result + result) & 0xFFFFFFFF;
+        }
+
+        const start = performance.now();
+        let min_time = Number.MAX_SAFE_INTEGER;
+        let max_time = -1;
+
+        for (let i = 0; i < ITERATIONS; i++) {
+            const iter_start = performance.now();
+
+            const result = benchmark.execute(input);
+
+            const iter_time = performance.now() - iter_start;
+            total_result = (total_result + result) & 0xFFFFFFFF;
+
+            if (iter_time < min_time) {
+                min_time = iter_time;
+            }
+
+            if (iter_time > max_time) {
+                max_time = iter_time;
+            }
+        }
+
+        const time = performance.now() - start;
+        const time_str = time_to_string(time);
+        const avg_time = time / ITERATIONS;
+
+        Console_Logger.log(
+            `${ITERATIONS} Iterations took ${time_str}, min. ${min_time}ms, max. ${max_time}ms, avg. ${avg_time}ms.`,
+        );
+        Console_Logger.log(`Result (ignore this): ${total_result}`);
+        Console_Logger.group_end();
+    }
+
+    Console_Logger.info('Finished running benchmarks.');
 }
 
 if (document.body) {
