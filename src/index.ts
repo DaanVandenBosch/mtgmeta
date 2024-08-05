@@ -611,7 +611,7 @@ function assert(condition: boolean, message?: () => string): asserts condition {
 function assert_eq<T>(actual: T, expected: T) {
     assert(
         deep_eq(actual, expected),
-        () => `Expected ${JSON.stringify(actual)} to be deeply equal to ${JSON.stringify(expected)}.`,
+        () => `Expected ${JSON.stringify(expected)} but got ${JSON.stringify(actual)}.`,
     );
 }
 
@@ -2642,10 +2642,11 @@ function to_string(object: any) {
 
 async function run_test_suite() {
     Console_Logger.time('run_test_suite');
+    Console_Logger.time('run_test_suite_setup');
 
-    const tests: { name: string, execute: (logger: Logger) => Promise<void> }[] = [];
+    const tests: { name: string, execute: (logger: Logger) => void | Promise<void> }[] = [];
 
-    function test(name: string, execute: (logger: Logger) => Promise<void>) {
+    function test(name: string, execute: (logger: Logger) => void | Promise<void>) {
         tests.push({ name, execute });
     }
 
@@ -3089,6 +3090,9 @@ async function run_test_suite() {
     for (const load of loads) {
         await load;
     }
+    
+    Console_Logger.time_end('run_test_suite_setup');
+    Console_Logger.time('run_test_suite_execute');
 
     let executed = 0;
     let succeeded = 0;
@@ -3121,6 +3125,7 @@ async function run_test_suite() {
 
     const failed = executed - succeeded;
 
+    Console_Logger.time_end('run_test_suite_execute');
     Console_Logger.time_end('run_test_suite');
 
     if (executed === succeeded) {
