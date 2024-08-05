@@ -130,6 +130,12 @@ async function preprocess_cards() {
 
     // Sort versions by release date.
     for (const dst_card of cards) {
+        if (dst_card.versions.length > 1024) {
+            throw Error(
+                `Card "${full_card_name(dst_card)}" has ${dst_card.versions.length} versions, the query evaluator's maximum is 1024 (see Array_Set).`
+            );
+        }
+
         dst_card.versions.sort((a, b) => a.released_at.getTime() - b.released_at.getTime());
     }
 
