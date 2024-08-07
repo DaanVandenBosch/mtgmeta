@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { readdir, mkdir, unlink } from "node:fs/promises";
 
 // Cards to exclude from the final data.
 const EXCLUDED_SET_TYPES = ['memorabilia', 'token'];
@@ -18,15 +18,11 @@ async function preprocess_cards() {
     console.log('Processing Scryfall "Oracle" cards.');
     // We do an initial pass over the oracle cards to get the most legible version of each card.
 
-    const oracle_cards = await get_card_data(sf_bulk_info, 'oracle_cards');
+    const oracle_cards: Sf_Card[] = await get_card_data(sf_bulk_info, 'oracle_cards');
 
     for (const src_card of oracle_cards) {
         try {
-            for (const prop of ['colors', 'image_uris']) {
-                if (prop in src_card && src_card.card_faces?.some((f: any) => prop in f)) {
-                    throw Error(`${prop} in both card and faces.`);
-                }
-            }
+            validate(src_card);
 
             const sfurl = src_card.scryfall_uri
                 .replace('https://scryfall.com/', '')
@@ -38,7 +34,7 @@ async function preprocess_cards() {
 
             const dst_card: Card = {
                 // Card properties.
-                cmc: src_card.cmc,
+                cmc: src_card.cmc ?? src_card.card_faces![0].cmc!,
                 formats,
                 identity: src_card.color_identity.join(''),
                 sfurl,
@@ -55,22 +51,22 @@ async function preprocess_cards() {
                 type: [],
             };
 
-            // Properties that will be on the face if there are faces, and on the card if there are no
-            // faces.
+            // Properties that will be on the face if there are faces, and on the card if there are
+            // no faces.
             for (const src_face of src_card.card_faces ?? [src_card]) {
-                dst_card.cost.push(src_face.mana_cost);
+                dst_card.cost.push(src_face.mana_cost!);
                 dst_card.name.push(src_face.name);
-                dst_card.oracle.push(src_face.oracle_text);
-                dst_card.type.push(src_face.type_line);
+                dst_card.oracle.push(src_face.oracle_text!);
+                dst_card.type.push(src_face.type_line ?? null);
             }
 
             // Properties that could be on the card even though there are faces.
             for (const src of [src_card, ...(src_card.card_faces ?? [])]) {
-                if ('colors' in src) {
+                if (src.colors !== undefined) {
                     dst_card.colors.push(src.colors.join(''));
                 }
 
-                if ('image_uris' in src) {
+                if (src.image_uris !== undefined) {
                     dst_card.img.push(
                         src.image_uris.normal.replace('https://cards.scryfall.io/normal/', ''),
                     );
@@ -78,9 +74,12 @@ async function preprocess_cards() {
             }
 
             cards.push(dst_card);
-            id_to_card.set(src_card.oracle_id, dst_card);
+
+            if (src_card.oracle_id !== undefined) {
+                id_to_card.set(src_card.oracle_id, dst_card);
+            }
         } catch (e) {
-            console.error(src_card.name, e);
+            console.error(src_card);
             throw e;
         }
     }
@@ -91,27 +90,35 @@ async function preprocess_cards() {
     const default_cards = await get_card_data(sf_bulk_info, 'default_cards');
 
     for (const src_card of default_cards) {
-        const id = src_card.oracle_id;
+        try {
+            validate(src_card);
 
-        if (id === undefined) {
-            // Ignore reversible cards, we already added them during the pass over the oracle cards.
-            continue;
+            const id = src_card.oracle_id;
+
+            if (id === undefined) {
+                // Ignore reversible cards, we already added them during the pass over the oracle
+                // cards.
+                continue;
+            }
+
+            const dst_card = id_to_card.get(id);
+
+            if (dst_card === undefined) {
+                throw Error(`No card for ${id}.`);
+            }
+
+            dst_card.versions.push({
+                digital: src_card.digital,
+                layout: src_card.layout,
+                rarity: src_card.rarity,
+                released_at: new Date(src_card.released_at + 'T00:00:00Z'),
+                set: src_card.set,
+                set_type: src_card.set_type,
+            });
+        } catch (e) {
+            console.error(src_card);
+            throw e;
         }
-
-        const dst_card = id_to_card.get(id);
-
-        if (dst_card === undefined) {
-            throw Error(`No card for ${id}.`);
-        }
-
-        dst_card.versions.push({
-            digital: src_card.digital,
-            layout: src_card.layout,
-            rarity: src_card.rarity,
-            released_at: new Date(src_card.released_at + 'T00:00:00Z'),
-            set: src_card.set,
-            set_type: src_card.set_type,
-        });
     }
 
     // Filter out cards we don't want.
@@ -128,6 +135,8 @@ async function preprocess_cards() {
         );
     });
 
+    console.log('Sorting.');
+
     // Sort versions by release date.
     for (const dst_card of cards) {
         if (dst_card.versions.length > 1024) {
@@ -139,12 +148,12 @@ async function preprocess_cards() {
         dst_card.versions.sort((a, b) => a.released_at.getTime() - b.released_at.getTime());
     }
 
-    console.log('Generating sort indices.');
-
-    // Default sort is alphabetically by name.
+    // Sort cards alphabetically by name.
     cards.sort((a, b) =>
         full_card_name(a).localeCompare(full_card_name(b), 'en', { ignorePunctuation: true })
     );
+
+    console.log('Generating indices.');
 
     const sort_indices = generate_sort_indices(cards);
 
@@ -208,6 +217,42 @@ async function preprocess_cards() {
     );
 }
 
+type Sf_Card = {
+    id: string,
+    oracle_id?: string,
+    name: string,
+    released_at: string,
+    scryfall_uri: string,
+    layout: string,
+    image_uris?: {
+        normal: string,
+    },
+    mana_cost?: string,
+    /** Reversible cards have their CMC on the faces. */
+    cmc?: number,
+    /** Reversible cards have their type line on the faces. */
+    type_line?: string,
+    oracle_text?: string,
+    colors?: string[],
+    color_identity: string[],
+    card_faces?: {
+        name: string,
+        mana_cost: string,
+        cmc?: number,
+        type_line?: string,
+        oracle_text: string,
+        colors?: string[],
+        image_uris?: {
+            normal: string,
+        },
+    }[],
+    legalities: { [key: string]: 'legal' | 'not_legal' | 'restricted' | 'banned' },
+    set: string,
+    set_type: string,
+    digital: boolean,
+    rarity: 'common' | 'uncommon' | 'rare' | 'special' | 'mythic' | 'bonus',
+};
+
 type Card = {
     /** Card properties. */
     cmc: number,
@@ -224,7 +269,7 @@ type Card = {
     img: string[],
     name: string[],
     oracle: string[],
-    type: string[],
+    type: (string | null)[],
 }
 
 type Card_Version = {
@@ -235,6 +280,136 @@ type Card_Version = {
     set: string,
     set_type: string,
 };
+
+function is_uuid_string(str: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(str);
+}
+
+function assert(condition: boolean, message?: () => string): asserts condition {
+    if (!condition) {
+        throw Error(message ? message() : 'Assertion failed.');
+    }
+}
+
+function assert_is_array<T extends object>(o: T, prop: keyof T) {
+    assert(Array.isArray(o[prop]), () => `Property ${String(prop)} is not an array.`);
+}
+
+function assert_array_of_type<T extends object>(o: T, prop: keyof T, type: 'string' | 'number' | 'boolean') {
+    assert_is_array(o, prop);
+
+    for (const v of o[prop] as any[]) {
+        assert(
+            typeof v === type,
+            () => `Not all values of property ${String(prop)} are of type ${type}.`,
+        );
+    }
+}
+
+function assert_type<T extends object>(o: T, prop: keyof T, type: 'string' | 'number' | 'boolean') {
+    assert(typeof o[prop] === type, () => `Property ${String(prop)} is not of type ${type}.`);
+}
+
+function assert_type_if_exists<T extends object>(o: T, prop: keyof T, type: 'string' | 'number' | 'boolean') {
+    if (prop in o) {
+        assert_type(o, prop, type);
+    }
+}
+
+function assert_value_in<T extends object, K extends keyof T>(o: T, prop: K, values: T[K][]) {
+    assert(values.includes(o[prop]), () => `Property ${String(prop)} is not one of ${values}.`);
+}
+
+function validate(card: Sf_Card) {
+    try {
+        assert(is_uuid_string(card.id));
+
+        if ('oracle_id' in card) {
+            assert(is_uuid_string(card.oracle_id!));
+        }
+
+        assert_type(card, 'name', 'string');
+        assert(/^\d{4}-\d{2}-\d{2}$/.test(card.released_at));
+        assert_type(card, 'layout', 'string');
+        assert_type(card, 'scryfall_uri', 'string');
+        assert(!('image_uris' in card) || typeof card.image_uris!.normal === 'string');
+        assert_type_if_exists(card, 'mana_cost', 'string');
+        assert_type_if_exists(card, 'cmc', 'number');
+        assert_type_if_exists(card, 'type_line', 'string');
+        assert('oracle_text' in card !== 'card_faces' in card);
+
+        if ('colors' in card) {
+            assert_array_of_type(card, 'colors', 'string');
+        }
+
+        assert_is_array(card, 'color_identity');
+        assert_array_of_type(card, 'color_identity', 'string');
+        assert_type(card, 'set', 'string');
+        assert_type(card, 'set_type', 'string');
+        assert_type(card, 'digital', 'boolean');
+
+        for (const k of Object.keys(card.legalities)) {
+            assert_value_in(card.legalities, k, ['legal', 'not_legal', 'restricted', 'banned']);
+        }
+
+        for (const prop of ['colors', 'cmc']) {
+            if (prop in card) {
+                if (card.card_faces?.some(f => prop in f)) {
+                    throw Error(`${prop} in both card and faces.`);
+                }
+            } else {
+                if (!('card_faces' in card) || card.card_faces!.length === 0) {
+                    throw Error(`${prop} not in card and card has no faces.`);
+                }
+
+                if (!card.card_faces!.every(f => prop in f)) {
+                    throw Error(`${prop} not in card and not in all faces.`);
+                }
+            }
+        }
+
+        if ('image_uris' in card && card.card_faces?.some(f => 'image_uris' in f)) {
+            throw Error(`image_uris in both card and faces.`);
+        }
+
+        if (!('type_line' in card) && !card.card_faces?.every(f => 'type_line' in f)) {
+            throw Error(`type_line not in card and not in faces.`);
+        }
+
+        if ('card_faces' in card) {
+            assert(Array.isArray(card.card_faces));
+            assert(card.card_faces.length >= 2);
+
+            let face_cmc = null;
+
+            for (const face of card.card_faces) {
+                assert_type(face, 'name', 'string');
+                assert_type(face, 'mana_cost', 'string');
+
+                if ('cmc' in face) {
+                    assert_type(face, 'cmc', 'number');
+
+                    if (face_cmc === null) {
+                        face_cmc = face.cmc;
+                    } else {
+                        assert(face_cmc === face.cmc);
+                    }
+                }
+
+                assert_type_if_exists(face, 'type_line', 'string');
+                assert_type(face, 'oracle_text', 'string');
+
+                if ('colors' in face) {
+                    assert_array_of_type(face, 'colors', 'string');
+                }
+
+                assert(!('image_uris' in face) || typeof face.image_uris!.normal === 'string');
+            }
+        }
+    } catch (e) {
+        throw Error(`Validation of card "${card.name}" (${card.id}) failed.`, { cause: e });
+    }
+}
 
 class Buf_Writer {
     #view: DataView;
@@ -297,7 +472,7 @@ class Buf_Writer {
     }
 }
 
-async function get_card_data(sf_bulk_info: any, type: string): Promise<any> {
+async function get_card_data(sf_bulk_info: any, type: string): Promise<Sf_Card[]> {
     for (const data of sf_bulk_info.data) {
         if (data.type === type) {
             if (!data.download_uri.endsWith('.json')) {
@@ -310,25 +485,34 @@ async function get_card_data(sf_bulk_info: any, type: string): Promise<any> {
                 throw Error(`Bulk data URI doesn't have any slashes: ${data.download_uri}`);
             }
 
-            const filename = data.download_uri.slice(last_slash + 1);
+            const filename: string = data.download_uri.slice(last_slash + 1);
+            const filename_parts = filename.match(/^([a-z]+[a-z0-9-]+-)\d+\.json$/);
 
-            if (!filename.match(/^[a-z]+[a-z0-9-]+\.json$/)) {
+            if (filename_parts === null) {
                 throw Error(`Computed filename looks wrong: ${filename}`);
             }
 
             const dir = 'preprocessing';
             const file = Bun.file(`${dir}/${filename}`);
+            let cards: Sf_Card[];
 
             if (await file.exists()) {
                 console.log(`Found a file named ${filename}, loading it.`);
-                return JSON.parse(await file.text());
+                cards = JSON.parse(await file.text());
             } else {
                 console.log(`No file named ${filename}, downloading bulk data.`);
-                const bulk_data = await (await fetch(data.download_uri)).json();
+                cards = await (await fetch(data.download_uri)).json();
                 await mkdir(dir, { recursive: true });
-                await Bun.write(file, JSON.stringify(bulk_data));
-                return bulk_data;
+                await Bun.write(file, JSON.stringify(cards));
             }
+
+            for (const f of await readdir(dir)) {
+                if (f.startsWith(filename_parts[1]) && f.endsWith('.json') && f !== filename) {
+                    await unlink(`${dir}/${f}`);
+                }
+            }
+
+            return cards;
         }
     }
 
