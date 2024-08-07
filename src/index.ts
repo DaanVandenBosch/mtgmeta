@@ -2038,7 +2038,25 @@ class Query_Parser {
             return null;
         }
 
-        const value = this.parse_word().toLocaleLowerCase('en');
+        let value = this.parse_word().toLocaleLowerCase('en');
+
+        switch (value) {
+            case 'edh':
+                value = 'commander';
+                break;
+            case 'os':
+                value = 'oldschool';
+                break;
+            case 'pd':
+                value = 'penny';
+                break;
+            case 'pedh':
+                value = 'paupercommander';
+                break;
+            case 's':
+                value = 'standard';
+                break;
+        }
 
         return this.add_prop({
             type: 'eq',
