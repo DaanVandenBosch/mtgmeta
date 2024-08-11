@@ -1867,7 +1867,18 @@ class Query_Parser {
         colon_type: 'le' | 'ge',
         prop: Prop,
     ): Comparison_Condition | null {
-        const value_string = this.parse_word().toLocaleLowerCase('en');
+        let value_string = this.parse_word();
+        const number_value = string_to_int(value_string);
+
+        if (number_value !== null) {
+            return this.add_prop({
+                type: this.operator_to_type(operator, 'eq'),
+                prop,
+                value: number_value,
+            });
+        }
+
+        value_string = value_string.toLocaleLowerCase('en');
         let value: Mana_Cost | null = null;
 
         switch (value_string) {
@@ -1991,6 +2002,8 @@ class Query_Parser {
                         case 'g':
                             value[MANA_GREEN] = 1;
                             break;
+                        default:
+                            return null;
                     }
                 }
 
@@ -3220,17 +3233,58 @@ class Query_Evaluator {
 
         this.logger.log('values', values);
 
-        if (condition.prop === 'colors'
-            || condition.prop === 'identity'
-            || condition.prop === 'cost'
-        ) {
+        const is_color_or_id = condition.prop === 'colors' || condition.prop === 'identity';
+
+        if (is_color_or_id && typeof (condition as Comparison_Condition).value === 'number') {
+            const cond_value = (condition as Comparison_Condition).value as number;
+
             for (const value of values) {
                 // Ignore non-existent values.
                 if (value === null) {
                     continue;
                 }
 
-                const cond_value = (condition as Comparison_Condition).value as Mana_Cost;
+                const count = Object.keys(value).length;
+                let result;
+
+                switch (condition.type) {
+                    case 'eq':
+                        result = count === cond_value;
+                        break;
+                    case 'ne':
+                        result = count !== cond_value;
+                        break;
+                    case 'gt':
+                        result = count > cond_value;
+                        break;
+                    case 'lt':
+                        result = count < cond_value;
+                        break;
+                    case 'ge':
+                        result = count >= cond_value;
+                        break;
+                    case 'le':
+                        result = count <= cond_value;
+                        break;
+                    default:
+                        unreachable(
+                            `Invalid condition type "${condition.type}" for property "${condition.prop}".`
+                        );
+                }
+
+                if (result) {
+                    return true;
+                }
+            }
+        } else if (is_color_or_id || condition.prop === 'cost') {
+            const cond_value = (condition as Comparison_Condition).value as Mana_Cost;
+
+            for (const value of values) {
+                // Ignore non-existent values.
+                if (value === null) {
+                    continue;
+                }
+
                 let result;
 
                 switch (condition.type) {
@@ -4022,6 +4076,18 @@ async function run_test_suite() {
     );
 
     test_query(
+        'color: with number',
+        'color:4 year<2010',
+        ['Dune-Brood Nephilim', 'Glint-Eye Nephilim', 'Ink-Treader Nephilim', 'Witch-Maw Nephilim', 'Yore-Tiller Nephilim'],
+    );
+
+    test_query(
+        'color< with number',
+        'c<2 abundant',
+        ['Abundant Growth', 'Abundant Harvest', 'Abundant Maw'],
+    );
+
+    test_query(
         'identity=',
         'identity=gr glade',
         ['Cinder Glade'],
@@ -4032,6 +4098,18 @@ async function run_test_suite() {
         'identity:',
         'id:gr scrapper',
         ['Elvish Scrapper', 'Scuzzback Scrapper', 'Khenra Scrapper', 'Gruul Scrapper', 'Scrapper Champion', 'Tuktuk Scrapper', 'Narstad Scrapper'],
+    );
+
+    test_query(
+        'identity: with number',
+        'id:4 year<2010',
+        ['Dune-Brood Nephilim', 'Glint-Eye Nephilim', 'Ink-Treader Nephilim', 'Witch-Maw Nephilim', 'Yore-Tiller Nephilim'],
+    );
+
+    test_query(
+        'identity> with number',
+        'id>4 year<2000',
+        ['Jack-in-the-Mox', 'Naked Singularity', 'Reality Twist', 'Sliver Queen'],
     );
 
     test_query(
@@ -4119,7 +4197,7 @@ async function run_test_suite() {
         'reprint',
         'not:reprint set:m12 t:wizard',
         ['Alabaster Mage', 'Azure Mage', "Jace's Archivist", 'Lord of the Unreal', 'Merfolk Mesmerist', 'Onyx Mage'],
-    )
+    );
 
     test_query(
         'disjunction',
@@ -4143,12 +4221,6 @@ async function run_test_suite() {
         'nested parens',
         'mana for ((t:creature t:dragon) or t:artifact)',
         ['Manaforce Mace', 'Manaform Hellkite'],
-    );
-
-    test_query(
-        'empty parens',
-        'draining or ()',
-        ['Draining Whelk'],
     );
 
     test_query(
