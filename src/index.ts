@@ -362,7 +362,7 @@ async function init() {
     POOLS[POOL_PREMODERN_PAUPER_COMMANDER] =
         parse_query('date<2003-07-29 rarity:uncommon type:creature');
     POOLS[POOL_PREMODERN_PEASANT] =
-        parse_query('date<2003-07-29 (rarity:common or rarity:uncommon)');
+        parse_query('date<2003-07-29 rarity<=uncommon');
     POOLS[POOL_PREMODERN_PEASANT_COMMANDER] =
         parse_query('date<2003-07-29 rarity:rare type:creature');
 
@@ -640,6 +640,8 @@ function unreachable(message?: string): never {
 }
 
 interface Logger {
+    should_log: boolean;
+
     log(...args: any[]): void;
     info(...args: any[]): void;
     error(...args: any[]): void;
@@ -650,6 +652,8 @@ interface Logger {
 }
 
 const Nop_Logger: Logger = {
+    should_log: false,
+
     log() { },
     info() { },
     error() { },
@@ -660,6 +664,8 @@ const Nop_Logger: Logger = {
 };
 
 const Console_Logger: Logger = {
+    should_log: true,
+
     log(...args: any[]) { console.log(...args); },
     info(...args: any[]) { console.info(...args); },
     error(...args: any[]) { console.error(...args); },
@@ -671,6 +677,8 @@ const Console_Logger: Logger = {
 
 class Mem_Logger implements Logger {
     private messages: { level: keyof Logger, args: any[] }[] = [];
+
+    should_log = true;
 
     log(...args: any[]) { this.message('log', ...args); }
     info(...args: any[]) { this.message('info', ...args); }
@@ -789,16 +797,6 @@ async function filter(logger: Logger) {
     logger.group_end();
 }
 
-function round_up_to_pow2_u32(n: number): number {
-    n--;
-    n |= n >>> 1;
-    n |= n >>> 2;
-    n |= n >>> 4;
-    n |= n >>> 8;
-    n++;
-    return n;
-}
-
 /** Counts the number of bits set in a 32-bit integer. */
 function pop_count_32(n: number): number {
     n = n - ((n >>> 1) & 0x55555555);
@@ -822,10 +820,10 @@ interface Uint_Set {
     clear(): void;
     union(other: this): void;
     diff(other: this): void;
+    to_array(): number[];
 }
 
 class Bitset implements Uint_Set {
-    static readonly MAX_CAP = 1024;
     static readonly mem = new Uint32Array(memory);
     static mem_offset = 0;
 
@@ -834,12 +832,7 @@ class Bitset implements Uint_Set {
     }
 
     static with_cap(cap: number): Bitset {
-        if (cap > Bitset.MAX_CAP) {
-            throw Error(`Size ${cap} greater than maximum capacity of ${Bitset.MAX_CAP}.`);
-        }
-
-        const bit_size = round_up_to_pow2_u32(cap);
-        const len = (bit_size + 31) >>> 5;
+        const len = (cap + 31) >>> 5;
         const new_set = new Bitset(cap, len);
         new_set.clear();
         return new_set;
@@ -1010,6 +1003,25 @@ class Bitset implements Uint_Set {
 
         this.size = size;
     }
+
+    to_array(): number[] {
+        const m_end = this.m_end;
+        const array = [];
+
+        for (let i = this.m_off; i < m_end; i++) {
+            const slot = Bitset.mem[i];
+
+            for (let j = 0; j < 32; j++) {
+                const bit_mask = 1 << j;
+
+                if ((slot & bit_mask) !== 0) {
+                    array.push(i * 32 + j);
+                }
+            }
+        }
+
+        return array;
+    }
 }
 
 class Bitset_32 implements Uint_Set {
@@ -1134,6 +1146,22 @@ class Bitset_32 implements Uint_Set {
         let values = this.values & ~other.values;
         this.values = values;
         this.size = pop_count_32(values);
+    }
+
+    to_array(): number[] {
+        const values = this.values;
+        const cap = this.cap;
+        const array = [];
+
+        for (let i = 0; i < cap; i++) {
+            const bit_mask = 1 << i;
+
+            if ((values & bit_mask) !== 0) {
+                array.push(i);
+            }
+        }
+
+        return array;
     }
 }
 
@@ -1355,6 +1383,18 @@ class Array_Set implements Uint_Set {
         }
 
         this.size = size;
+    }
+
+    to_array(): number[] {
+        const offset = this.offset;
+        const end = offset + this.size;
+        const array = [];
+
+        for (let i = offset; i < end; i++) {
+            array.push(Array_Set.mem[i]);
+        }
+
+        return array;
     }
 }
 
@@ -2859,9 +2899,9 @@ function mana_cost_eq(a: Mana_Cost, b: Mana_Cost, logger: Logger): boolean {
 
         if (a_count !== b_count) {
             if (a_count === undefined) {
-                logger.log(`No symbol ${symbol} in a.`, a, b);
+                logger.log('No symbol', symbol, 'in a:', a, 'b:', b);
             } else {
-                logger.log(`Symbol ${symbol} value ${a_count} !== ${b_count}.`, a, b);
+                logger.log('Symbol', symbol, 'value', a_count, '!==', b_count, 'a:', a, 'b:', b);
             }
 
             return false;
@@ -2881,7 +2921,7 @@ function mana_cost_is_super_set(
     const b_symbols = Object.keys(b).length;
 
     if (a_symbols < b_symbols) {
-        logger.log(`a has fewer symbols than b.`, a, b);
+        logger.log('a has fewer symbols than b.', a, b);
         return false;
     }
 
@@ -2892,7 +2932,7 @@ function mana_cost_is_super_set(
         const a_count = a[symbol] ?? 0;
 
         if (a_count < b_count) {
-            logger.log(`Symbol ${symbol} value ${a_count} < ${b_count}.`, a, b);
+            logger.log('Symbol', symbol, 'value', a_count, '<', b_count, 'a:', a, 'b:', b);
             return false;
         }
 
@@ -2917,7 +2957,7 @@ function mana_cost_is_super_set(
     if (a_symbols > b_symbols) {
         return true;
     } else {
-        logger.log(`a doesn't have more symbols than b.`, a, b);
+        logger.log("a doesn't have more symbols than b.", a, b);
         return false;
     }
 }
@@ -3027,10 +3067,12 @@ class Query_Evaluator {
         this.card_idx = card_idx;
         this.logger = logger;
 
-        const name = data.cards.name(card_idx);
         const version_count = data.cards.version_count(card_idx) ?? 1;
 
-        logger.log(`evaluating query with "${name}"`, card_idx, `versions: ${version_count}`);
+        if (logger.should_log) {
+            const name = data.cards.name(card_idx);
+            logger.log('evaluating query with', name, card_idx, 'versions', version_count);
+        }
 
         let version_idxs;
         let set_type;
@@ -3129,7 +3171,10 @@ class Query_Evaluator {
             }
         }
 
-        this.logger.log('result', version_idxs);
+        if (this.logger.should_log) {
+            this.logger.log('result', version_idxs.to_array());
+        }
+
         this.logger.group_end();
     }
 
