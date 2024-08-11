@@ -520,7 +520,7 @@ async function get_card_data(sf_bulk_info: any, type: string): Promise<Sf_Card[]
 }
 
 function full_card_name(card: Card): string {
-    return card.name.length === 1 ? card.name[0] : card.name.join(' // ');
+    return card.name.join(' // ');
 }
 
 function generate_sort_indices(cards: Card[]): { prop: string, index: ArrayBuffer }[] {

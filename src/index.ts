@@ -73,6 +73,8 @@ const RARITY_RANK = Object.freeze({
 const POOL_ALL = 'all';
 const POOL_PREMODERN_PAUPER = 'pmp';
 const POOL_PREMODERN_PAUPER_COMMANDER = 'pmpc';
+const POOL_PREMODERN_PEASANT = 'pmpst';
+const POOL_PREMODERN_PEASANT_COMMANDER = 'pmpstc';
 
 const POOLS: { [key: string]: Query } = {};
 
@@ -356,9 +358,13 @@ async function init() {
     POOLS[POOL_ALL] =
         parse_query('');
     POOLS[POOL_PREMODERN_PAUPER] =
-        parse_query('format:premodern rarity:common');
+        parse_query('date<2003-07-29 rarity:common');
     POOLS[POOL_PREMODERN_PAUPER_COMMANDER] =
-        parse_query('format:premodern rarity:uncommon type:creature');
+        parse_query('date<2003-07-29 rarity:uncommon type:creature');
+    POOLS[POOL_PREMODERN_PEASANT] =
+        parse_query('date<2003-07-29 (rarity:common or rarity:uncommon)');
+    POOLS[POOL_PREMODERN_PEASANT_COMMANDER] =
+        parse_query('date<2003-07-29 rarity:rare type:creature');
 
     ui.query_el = get_el('.query');
     ui.pool_el = get_el('.pool');
@@ -2052,6 +2058,9 @@ class Query_Parser {
                 break;
             case 'pedh':
                 value = 'paupercommander';
+                break;
+            case 'pm':
+                value = 'premodern';
                 break;
             case 's':
                 value = 'standard';
