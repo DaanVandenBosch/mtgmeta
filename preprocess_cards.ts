@@ -4,7 +4,7 @@ import { readdir, mkdir, unlink } from "node:fs/promises";
 const EXCLUDED_SET_TYPES = ['memorabilia', 'token'];
 const EXCLUDED_SETS = ['cmb1', 'cmb2'];
 const EXCLUDED_LAYOUTS = ['scheme', 'token', 'planar', 'emblem', 'vanguard', 'double_faced_token'];
-// We also exclude purely digital cards.
+// We also exclude purely digital cards and MB2 "test" cards.
 
 const TEXT_ENC = new TextEncoder();
 
@@ -114,6 +114,7 @@ async function preprocess_cards() {
                 released_at: new Date(src_card.released_at + 'T00:00:00Z'),
                 set: src_card.set,
                 set_type: src_card.set_type,
+                collector_number: src_card.collector_number,
             });
         } catch (e) {
             console.error(src_card);
@@ -132,6 +133,8 @@ async function preprocess_cards() {
             || EXCLUDED_SET_TYPES.includes(version.set_type)
             || EXCLUDED_SETS.includes(version.set)
             || EXCLUDED_LAYOUTS.includes(version.layout)
+            // Filter out MB2 "test" cards:
+            || version.set === 'mb2' && version.collector_number.startsWith('999-')
         );
     });
 
@@ -249,6 +252,7 @@ type Sf_Card = {
     legalities: { [key: string]: 'legal' | 'not_legal' | 'restricted' | 'banned' },
     set: string,
     set_type: string,
+    collector_number: string,
     digital: boolean,
     rarity: 'common' | 'uncommon' | 'rare' | 'special' | 'mythic' | 'bonus',
 };
@@ -279,6 +283,7 @@ type Card_Version = {
     released_at: Date,
     set: string,
     set_type: string,
+    collector_number: string,
 };
 
 function is_uuid_string(str: string): boolean {
