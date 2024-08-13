@@ -11,6 +11,7 @@ body {
     --hilight: rgb(255, 99, 99);
     --card-width: 244px;
     --card-height: 340px;
+    --card-border-radius: 12px;
 
     position: fixed;
     display: flex;
@@ -197,7 +198,7 @@ header {
     display: flex;
     width: var(--card-width);
     height: var(--card-height);
-    border-radius: 12px;
+    border-radius: var(--card-border-radius);
     box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
     overflow: hidden;
 }
@@ -211,14 +212,13 @@ header {
 .card>img {
     width: 100%;
     height: 100%;
-    overflow: hidden;
-    border-radius: 11px;
 }
 
 @media (max-width: 600px) {
     body {
         --card-width: 183px;
         --card-height: 255px;
+        --card-border-radius: 10px;
     }
 
     .filter_container {
