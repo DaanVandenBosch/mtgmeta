@@ -2,6 +2,7 @@
 
 <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1">
     <script src="index.js" async></script>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" href="data:,">
@@ -15,28 +16,34 @@
 <body>
     <header>
         <div class="filter_container">
-            <input type="search" class="query" autofocus autocomplete="off">
-            from
-            <select class="pool" autocomplete="off">
-                <option value="all">All cards</option>
-                <option value="pmp">PM pauper</option>
-                <option value="pmpc">PM pauper cmdr.</option>
-                <option value="pmpst">PM peasant</option>
-                <option value="pmpstc">PM peasant cmdr.</option>
-            </select>
-            sorted by
-            <select class="sort_order" autocomplete="off">
-                <option value="cmc">Mana value</option>
-                <option value="name" selected>Name</option>
-                <option value="released_at">Release date</option>
-            </select>
-            <div class="sort_dir">
-                <label>
-                    <input type="radio" name="sort_dir" value="asc" autocomplete="off" checked>Asc
-                </label>
-                <label>
-                    <input type="radio" name="sort_dir" value="desc" autocomplete="off">Desc
-                </label>
+            <div class="filter_base">
+                <input type="text" class="query" autofocus autocomplete="off">
+                <button class="filter_show_extra">┇</button>
+            </div>
+            <div class="filter_extra">
+                from
+                <select class="pool" autocomplete="off">
+                    <option value="all">All cards</option>
+                    <option value="pmp">PM pauper</option>
+                    <option value="pmpc">PM pauper cmdr.</option>
+                    <option value="pmpst">PM peasant</option>
+                    <option value="pmpstc">PM peasant cmdr.</option>
+                </select>
+                sorted by
+                <select class="sort_order" autocomplete="off">
+                    <option value="cmc">Mana value</option>
+                    <option value="name" selected>Name</option>
+                    <option value="released_at">Release date</option>
+                </select>
+                <div class="sort_dir">
+                    <label>
+                        <input type="radio" name="sort_dir" value="asc" autocomplete="off"
+                            checked>Asc
+                    </label>
+                    <label>
+                        <input type="radio" name="sort_dir" value="desc" autocomplete="off">Desc
+                    </label>
+                </div>
             </div>
         </div>
         <div class="result_nav">

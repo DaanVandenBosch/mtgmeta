@@ -338,6 +338,8 @@ let result: { cards: number[], length: number } | null = null;
 /** All DOM elements that the user interacts with. */
 const ui = {
     query_el: undefined as any as HTMLInputElement,
+    show_extra_el: undefined as any as HTMLButtonElement,
+    extra_el: undefined as any as HTMLButtonElement,
     pool_el: undefined as any as HTMLSelectElement,
     sort_order_el: undefined as any as HTMLSelectElement,
     sort_dir_asc_el: undefined as any as HTMLInputElement,
@@ -362,11 +364,13 @@ async function init() {
     POOLS[POOL_PREMODERN_PAUPER_COMMANDER] =
         parse_query('date<2003-07-29 rarity:uncommon type:creature');
     POOLS[POOL_PREMODERN_PEASANT] =
-        parse_query('date<2003-07-29 rarity<=uncommon');
+        parse_query('date<2003-07-29 rarity<=uncommon -"Library of Alexandria" -"Strip Mine" -"Wasteland" -"Maze of Ith"');
     POOLS[POOL_PREMODERN_PEASANT_COMMANDER] =
         parse_query('date<2003-07-29 rarity:rare type:creature');
 
     ui.query_el = get_el('.query');
+    ui.show_extra_el = get_el('.filter_show_extra');
+    ui.extra_el = get_el('.filter_extra');
     ui.pool_el = get_el('.pool');
     ui.sort_order_el = get_el('.sort_order');
     ui.sort_dir_asc_el = get_el('.sort_dir input[value=asc]');
@@ -394,6 +398,17 @@ async function init() {
     ui.query_el.onkeydown = e => {
         if (e.key === 'Enter') {
             set_inputs({ query_string: ui.query_el.value });
+        }
+    };
+
+    ui.show_extra_el.onclick = () => {
+        const SHOWN_CLASS = 'filter_extra_shown';
+        const classes = ui.extra_el.classList;
+
+        if (classes.contains(SHOWN_CLASS)) {
+            classes.remove(SHOWN_CLASS);
+        } else {
+            classes.add(SHOWN_CLASS);
         }
     };
 

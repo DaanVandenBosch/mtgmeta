@@ -9,11 +9,16 @@ body {
     --very-dark: rgb(31, 18, 18);
     --light: rgb(240, 232, 232);
     --hilight: rgb(255, 99, 99);
+    --card-width: 244px;
+    --card-height: 340px;
 
+    position: fixed;
     display: flex;
     flex-direction: column;
-    width: 100vw;
-    height: 100vh;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
     margin: 0;
     font-family: 'Trebuchet MS', sans-serif;
     background-color: var(--light);
@@ -50,14 +55,14 @@ button:enabled:hover {
     background-color: rgb(146, 110, 110);
 }
 
-input[type=search]:hover,
+input[type=tex]:hover,
 select:hover {
     outline-color: rgb(92, 70, 70);
     outline-width: 2px;
     outline-style: solid;
 }
 
-input[type=search]:focus,
+input[type=text]:focus,
 select:focus,
 button:focus {
     outline-color: var(--light);
@@ -76,11 +81,21 @@ header {
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
 }
 
-.filter_container {
+.filter_container,
+.filter_base,
+.filter_extra {
     display: flex;
     flex-direction: row;
     gap: 10px;
     align-items: center;
+}
+
+.filter_base {
+    flex: 1;
+}
+
+.filter_show_extra {
+    display: none;
 }
 
 .query {
@@ -171,8 +186,8 @@ header {
 
 .cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, 244px);
-    grid-template-rows: repeat(auto-fill, 340px);
+    grid-template-columns: repeat(auto-fill, var(--card-width));
+    grid-template-rows: repeat(auto-fill, var(--card-height));
     justify-content: center;
     gap: 6px;
     margin: 10px;
@@ -180,8 +195,8 @@ header {
 
 .card {
     display: flex;
-    width: 244px;
-    height: 340px;
+    width: var(--card-width);
+    height: var(--card-height);
     border-radius: 12px;
     box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
     overflow: hidden;
@@ -198,4 +213,41 @@ header {
     height: 100%;
     overflow: hidden;
     border-radius: 11px;
+}
+
+@media (max-width: 600px) {
+    body {
+        --card-width: 183px;
+        --card-height: 255px;
+    }
+
+    .filter_container {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filter_show_extra {
+        display: unset;
+    }
+
+    .filter_extra {
+        display: none;
+        grid-template-columns: auto auto 40px;
+    }
+
+    .filter_extra.filter_extra_shown {
+        display: grid;
+    }
+
+    .pool {
+        grid-column-start: 2;
+        grid-column-end: 4;
+    }
+}
+
+@media (max-width: 400px) {
+    body {
+        --card-width: 244px;
+        --card-height: 340px;
+    }
 }
