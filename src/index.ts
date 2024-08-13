@@ -364,7 +364,7 @@ async function init() {
     POOLS[POOL_PREMODERN_PAUPER_COMMANDER] =
         parse_query('date<2003-07-29 rarity:uncommon type:creature');
     POOLS[POOL_PREMODERN_PEASANT] =
-        parse_query('date<2003-07-29 rarity<=uncommon -"Library of Alexandria" -"Strip Mine" -"Wasteland" -"Maze of Ith"');
+        parse_query('date<2003-07-29 rarity<=uncommon -"Library of Alexandria" -"Strip Mine" -"Wasteland" -"Maze of Ith" -"Sol Ring"');
     POOLS[POOL_PREMODERN_PEASANT_COMMANDER] =
         parse_query('date<2003-07-29 rarity:rare type:creature');
 
