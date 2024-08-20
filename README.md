@@ -4,6 +4,10 @@
 
 Install [Bun](https://bun.sh).
 
+```sh
+bun install
+```
+
 ## Start Server
 
 ```sh
