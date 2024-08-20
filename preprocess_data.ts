@@ -128,14 +128,27 @@ async function preprocess() {
             throw Error(`Card "${full_card_name(dst_card)}" has no versions.`);
         }
 
-        return !dst_card.versions.every(version =>
-            version.digital
-            || EXCLUDED_SET_TYPES.includes(version.set_type)
-            || EXCLUDED_SETS.includes(version.set)
-            || EXCLUDED_LAYOUTS.includes(version.layout)
+        return !dst_card.versions.every(version => {
+            if (
+                version.digital
+                || EXCLUDED_SET_TYPES.includes(version.set_type)
+                || EXCLUDED_SETS.includes(version.set)
+                || EXCLUDED_LAYOUTS.includes(version.layout)
+            ) {
+                return true;
+            }
+
             // Filter out MB2 "test" cards:
-            || version.set === 'mb2' && version.collector_number.startsWith('999-')
-        );
+            if (version.set === 'mb2') {
+                const n = parseInt(version.collector_number, 10);
+
+                if (n >= 265 && n <= 385) {
+                    return true;
+                }
+            }
+
+            return false;
+        });
     });
 
     console.log('Sorting.');
