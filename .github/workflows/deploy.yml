@@ -28,6 +28,9 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Cache source data
         uses: actions/cache@v4
         env:
@@ -35,22 +38,24 @@ jobs:
         with:
           path: preprocessing
           key: ${{ runner.os }}-build-${{ env.cache-name }}
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          lfs: true
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
+
       - name: Bun install
         run: bun install --production --frozen-lockfile
+
       - name: Build
         run: bun build-prod
+
       - name: Set up Pages
         uses: actions/configure-pages@v5
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: 'out'
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
