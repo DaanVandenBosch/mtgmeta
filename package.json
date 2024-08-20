@@ -3,9 +3,9 @@
   "module": "src/index.ts",
   "type": "module",
   "scripts": {
-    "preprocess": "bun preprocess_cards.ts",
+    "preprocess": "bun preprocess_data.ts",
     "dev": "bun dev_server.ts",
-    "bake": "bun bake.ts"
+    "build-prod": "bun build.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

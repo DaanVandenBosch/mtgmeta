@@ -122,7 +122,7 @@ const data = {
             let promise = this.prop_promises.get(prop);
 
             if (promise === undefined) {
-                promise = fetch(`card_${prop}.json`).then(async response => {
+                promise = fetch(`data/card_${prop}.json`).then(async response => {
                     const data = await response.json();
 
                     switch (prop) {
@@ -284,7 +284,7 @@ const data = {
             if (order === 'name') {
                 promise = Promise.resolve(new Default_Sorter(order));
             } else {
-                promise = fetch(`card_${order}.sort`).then(async response => {
+                promise = fetch(`data/card_${order}.sort`).then(async response => {
                     let sorter: Sorter;
 
                     try {

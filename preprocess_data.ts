@@ -8,7 +8,7 @@ const EXCLUDED_LAYOUTS = ['scheme', 'token', 'planar', 'emblem', 'vanguard', 'do
 
 const TEXT_ENC = new TextEncoder();
 
-async function preprocess_cards() {
+async function preprocess() {
     console.log('Getting Scryfall bulk data information.');
     const sf_bulk_info = await (await fetch('https://api.scryfall.com/bulk-data')).json();
 
@@ -162,6 +162,8 @@ async function preprocess_cards() {
 
     console.log('Writing output files.');
 
+    await mkdir('data', { recursive: true });
+
     function json_replacer(this: any, key: string): any {
         const value = this[key];
 
@@ -187,7 +189,7 @@ async function preprocess_cards() {
         'type',
     ] as (keyof Card)[]) {
         await Bun.write(
-            `src/card_${prop}.json`,
+            `data/card_${prop}.json`,
             JSON.stringify(
                 cards.map(c => c[prop]),
                 json_replacer,
@@ -201,7 +203,7 @@ async function preprocess_cards() {
         'set',
     ] as (keyof Card['versions'][0])[]) {
         await Bun.write(
-            `src/card_${prop}.json`,
+            `data/card_${prop}.json`,
             JSON.stringify(
                 cards.map(c => c.versions.map(v => v[prop])),
                 json_replacer,
@@ -210,7 +212,7 @@ async function preprocess_cards() {
     }
 
     for (const { prop, index } of sort_indices) {
-        await Bun.write(`src/card_${prop}.sort`, index);
+        await Bun.write(`data/card_${prop}.sort`, index);
     }
 
     const total_versions = cards.reduce((acc, card) => acc + card.versions.length, 0);
@@ -618,4 +620,4 @@ function write_group_table(buf: Buf_Writer, groups: Array<[any, Array<any>]>) {
     }
 }
 
-preprocess_cards();
+await preprocess();
