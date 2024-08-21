@@ -84,228 +84,7 @@ const SORT_ORDERS: Sort_Order[] = ['cmc', 'name', 'released_at'];
 const INEXACT_REGEX = /[.,:;/\\'" \t]+/g;
 
 /** Static data that gets loaded once and then never changes. */
-const data = {
-    cards: {
-        length: null as number | null,
-        props: new Map<Prop, any>(),
-        prop_promises: new Map<Prop, Promise<void>>(),
-
-        async load(prop: Prop) {
-            switch (prop) {
-                case 'name_search':
-                case 'name_inexact':
-                    prop = 'name';
-                    break;
-
-                case 'oracle_search':
-                    prop = 'oracle';
-                    break;
-
-                case 'reprint':
-                    for (const pp_prop of PER_VERSION_PROPS) {
-                        const promise = this.prop_promises.get(pp_prop);
-
-                        if (promise !== undefined) {
-                            return promise;
-                        }
-                    }
-
-                    // Just load *a* per-version property, so we know the version count.
-                    prop = 'set';
-                    break;
-
-                case 'type_search':
-                    prop = 'type';
-                    break;
-            }
-
-            let promise = this.prop_promises.get(prop);
-
-            if (promise === undefined) {
-                promise = fetch(`data/card_${prop}.json`).then(async response => {
-                    const data = await response.json();
-
-                    switch (prop) {
-                        case 'colors':
-                        case 'cost': {
-                            for (const faces of data) {
-                                for (let i = 0, len = faces.length; i < len; i++) {
-                                    const value_str = faces[i];
-
-                                    // Ignore non-existent values. Also ignore empty mana costs of
-                                    // the backside of transform cards.
-                                    if (value_str === null
-                                        || (i >= 1 && prop === 'cost' && value_str === '')
-                                    ) {
-                                        faces[i] = null;
-                                    } else {
-                                        faces[i] = parse_mana_cost(value_str).cost;
-                                    }
-                                }
-                            }
-
-                            break;
-                        }
-
-                        case 'identity': {
-                            for (let i = 0, len = data.length; i < len; i++) {
-                                data[i] = parse_mana_cost(data[i]).cost;
-                            }
-
-                            break;
-                        }
-
-                        case 'name': {
-                            const search_data = [];
-                            const inexact_data = [];
-
-                            for (const values of data) {
-                                search_data.push(
-                                    values
-                                        .join(' // ')
-                                        .toLocaleLowerCase('en')
-                                );
-                                inexact_data.push(
-                                    values
-                                        .join('')
-                                        .replace(INEXACT_REGEX, '')
-                                        .toLocaleLowerCase('en')
-                                );
-                            }
-
-                            this.props.set('name_search', search_data);
-                            this.props.set('name_inexact', inexact_data);
-                            break;
-                        }
-
-                        case 'oracle':
-                        case 'type': {
-                            const search_data = data.map((values: string[]) =>
-                                values.map(v => v.toLocaleLowerCase('en')));
-                            this.props.set((prop + '_search') as Prop, search_data);
-                            break;
-                        }
-
-                        case 'released_at': {
-                            for (const values of data) {
-                                for (let i = 0, len = values.length; i < len; i++) {
-                                    values[i] = new Date(values[i] + 'T00:00:00Z');
-                                }
-                            }
-
-                            break;
-                        }
-                    }
-
-                    this.props.set(prop, data);
-                    this.length = data.length;
-                });
-
-                this.prop_promises.set(prop, promise);
-            }
-
-            return promise;
-        },
-
-        /** Returns the value or values of a card property. */
-        get<T>(idx: number, prop: Prop): T | null {
-            return this.props.get(prop)?.at(idx) ?? null;
-        },
-
-        /** Returns the value or values of a property for a specific version. */
-        get_for_version<T>(idx: number, version_idx: number, prop: Prop): T | null {
-            // Reprint is a logical property, every version except the first is a reprint.
-            if (prop === 'reprint') {
-                return (version_idx !== 0) as T;
-            }
-
-            const value = this.props.get(prop)?.at(idx);
-
-            if (value == null) {
-                return null;
-            }
-
-            if (PER_VERSION_PROPS.includes(prop)) {
-                return value[version_idx] ?? null;
-            } else {
-                return value;
-            }
-        },
-
-        version_count(idx: number): number | null {
-            for (const pp_prop of PER_VERSION_PROPS) {
-                const values = this.get<any[]>(idx, pp_prop);
-
-                if (values !== null) {
-                    return values.length;
-                }
-            }
-
-            return null;
-        },
-
-        name(idx: number): string | null {
-            const names = this.get<string[]>(idx, 'name');
-
-            if (names === null || names.length == 0) {
-                return null;
-            }
-
-            return names.join(' // ');
-        },
-
-        scryfall_url(idx: number): string | null {
-            const sfurl = this.get<string>(idx, 'sfurl');
-
-            if (sfurl === null) {
-                return null;
-            }
-
-            return `https://scryfall.com/${sfurl}`;
-        },
-
-        image_url(idx: number): string | null {
-            const imgs = this.get<string[]>(idx, 'img');
-
-            if (imgs === null || imgs.length === 0) {
-                return null;
-            }
-
-            return `https://cards.scryfall.io/normal/${imgs[0]}`;
-        },
-    },
-
-    sorters: new Map<Sort_Order, Promise<Sorter>>(),
-
-    async get_sorter(order: Sort_Order): Promise<Sorter> {
-        let promise = this.sorters.get(order);
-
-        if (promise === undefined) {
-            if (order === 'name') {
-                promise = Promise.resolve(new Default_Sorter(order));
-            } else {
-                promise = fetch(`data/card_${order}.sort`).then(async response => {
-                    let sorter: Sorter;
-
-                    try {
-                        sorter = new Index_Sorter(await response.arrayBuffer());
-                        // Even when this assert throws, we keep the sorter.
-                        assert_eq(sorter.order, order);
-                    } catch (e) {
-                        Console_Logger.error(e);
-                        return new Default_Sorter(order);
-                    }
-
-                    return sorter;
-                });
-            }
-
-            this.sorters.set(order, promise);
-        }
-
-        return promise;
-    },
-};
+let data: Data = undefined as any as Data;
 
 /** User input. */
 const DEFAULT_QUERY_STRING = '';
@@ -367,6 +146,8 @@ async function init() {
         parse_query('date<2003-07-29 rarity<=uncommon -"Library of Alexandria" -"Strip Mine" -"Wasteland" -"Maze of Ith" -"Sol Ring"');
     POOLS[POOL_PREMODERN_PEASANT_COMMANDER] =
         parse_query('date<2003-07-29 rarity:rare type:creature');
+
+    data = new Data;
 
     ui.query_el = get_el('.query');
     ui.show_extra_el = get_el('.filter_show_extra');
@@ -654,6 +435,12 @@ function unreachable(message?: string): never {
     throw Error(message ?? `Should never reach this code.`);
 }
 
+class Out_Of_Date_Error extends Error {
+    constructor() {
+        super('Some properties are out of date.');
+    }
+}
+
 interface Logger {
     should_log: boolean;
 
@@ -728,7 +515,7 @@ async function filter(logger: Logger) {
 
     // Try to avoid showing "Loading..." when the user opens the app, as it makes you think you
     // can't filter cards yet.
-    if (data.cards.length === null
+    if (data.length === null
         && inputs.query_string !== ''
         && ui.result_summary_el.innerHTML === ''
     ) {
@@ -754,13 +541,29 @@ async function filter(logger: Logger) {
     logger.log('user query', user_query);
     logger.log('combined query', combined_query);
 
-    result = await find_cards_matching_query(
-        query,
-        inputs.sort_order,
-        inputs.sort_asc,
-        logger,
-        () => Nop_Logger,
-    );
+    const MAX_TRIES = 2;
+
+    for (let i = 1; i <= MAX_TRIES; i++) {
+        try {
+            result = await find_cards_matching_query(
+                query,
+                inputs.sort_order,
+                inputs.sort_asc,
+                logger,
+                () => Nop_Logger,
+            );
+            break;
+        } catch (e) {
+            if (i < MAX_TRIES) {
+                logger.error('Error while finding matching cards, retrying.', e);
+                continue;
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    assert(result !== null);
 
     logger.time('filter_render');
 
@@ -780,12 +583,12 @@ async function filter(logger: Logger) {
     for (const card_idx of view_result) {
         const a: HTMLAnchorElement = el('a');
         a.className = 'card';
-        a.href = data.cards.scryfall_url(card_idx) ?? '';
+        a.href = data.scryfall_url(card_idx) ?? '';
         a.target = '_blank';
 
         const img: HTMLImageElement = el('img');
         img.loading = 'lazy';
-        img.src = data.cards.image_url(card_idx) ?? '';
+        img.src = data.image_url(card_idx) ?? '';
         a.append(img);
 
         frag.append(a);
@@ -800,7 +603,7 @@ async function filter(logger: Logger) {
     ui.result_cards_el.scroll(0, 0);
     ui.result_cards_el.append(frag);
 
-    const at_first_page = data.cards.length === null || start_pos === 1;
+    const at_first_page = data.length === null || start_pos === 1;
     const at_last_page = start_pos >= result.length - MAX_CARDS + 1
     ui.result_prev_el.disabled = at_first_page;
     ui.result_next_el.disabled = at_last_page;
@@ -1446,7 +1249,7 @@ class Default_Sorter implements Sorter {
     }
 
     sort(cards: Map<number, number>, asc: boolean): number[] {
-        const len = data.cards.length ?? 0;
+        const len = data.length ?? 0;
         const result = [];
 
         for (let i = 0; i < len; i++) {
@@ -1462,12 +1265,13 @@ class Default_Sorter implements Sorter {
 }
 
 class Index_Sorter implements Sorter {
-    static readonly GROUP_HEADER_OFFSET = 24;
+    static readonly GROUP_HEADER_OFFSET = 32;
     static readonly GROUP_TABLE_OFFSET = Index_Sorter.GROUP_HEADER_OFFSET + 4;
 
     private view: DataView
     readonly order: Sort_Order;
     readonly type: Sort_Type;
+    readonly creation_time: Date;
 
     constructor(buf: ArrayBuffer) {
         this.view = new DataView(buf);
@@ -1475,27 +1279,29 @@ class Index_Sorter implements Sorter {
         const identifier = TEXT_DECODER.decode(buf.slice(0, 4));
         const version = this.u16(4);
         const type = this.u8(6);
+        const creation_time = new Date(Number(this.u64(8)));
 
-        let order_len = new Uint8Array(buf, 8, 16).indexOf(0);
+        let order_len = new Uint8Array(buf, 16, 16).indexOf(0);
 
         if (order_len === -1) {
             order_len = 16;
         }
 
-        const order = TEXT_DECODER.decode(buf.slice(8, 8 + order_len)) as Sort_Order;
+        const order = TEXT_DECODER.decode(buf.slice(16, 16 + order_len)) as Sort_Order;
 
         assert_eq(identifier, 'MTGI');
-        assert_eq(version, 2);
+        assert_eq(version, 3);
         assert(type === 1 || type === 2);
 
         this.order = order;
         this.type = type;
+        this.creation_time = creation_time;
     }
 
     sort(cards: Map<number, number>, asc: boolean): number[] {
         const GROUP_TABLE_OFFSET = Index_Sorter.GROUP_TABLE_OFFSET;
         const type = this.type;
-        const len = data.cards.length ?? 0;
+        const len = data.length ?? 0;
         const group_count = this.u32(Index_Sorter.GROUP_HEADER_OFFSET);
         const groups_offset = GROUP_TABLE_OFFSET + 4 * group_count;
 
@@ -1552,6 +1358,268 @@ class Index_Sorter implements Sorter {
 
     private u32(offset: number): number {
         return this.view.getUint32(offset, true);
+    }
+
+    private u64(offset: number): bigint {
+        return this.view.getBigUint64(offset, true);
+    }
+}
+
+class Data {
+    length: number | null = null;
+    props: Map<Prop, any> = new Map;
+    prop_promises: Map<Prop, Promise<void>> = new Map;
+    sorters: Map<Sort_Order, Promise<Sorter>> = new Map;
+    creation_time: Date | null = null;
+    aborter = new AbortController;
+    fetch_reload = false;
+
+    data_is_out_of_date() {
+        // We only try a second fetch with cache reload once.
+        if (!this.fetch_reload) {
+            // Abort all in-flight requests.
+            this.aborter.abort();
+            this.aborter = new AbortController;
+
+            // Clear all data.
+            this.length = null;
+            this.props.clear();
+            this.prop_promises.clear();
+            this.sorters.clear();
+
+            // Fetch with Cache-Control set to reload from now on.
+            this.fetch_reload = true;
+
+            // Throw an error to trigger a retry.
+            throw new Out_Of_Date_Error;
+        }
+    }
+
+    async load(prop: Prop) {
+        switch (prop) {
+            case 'name_search':
+            case 'name_inexact':
+                prop = 'name';
+                break;
+
+            case 'oracle_search':
+                prop = 'oracle';
+                break;
+
+            case 'reprint':
+                for (const pp_prop of PER_VERSION_PROPS) {
+                    const promise = this.prop_promises.get(pp_prop);
+
+                    if (promise !== undefined) {
+                        return promise;
+                    }
+                }
+
+                // Just load *a* per-version property, so we know the version count.
+                prop = 'set';
+                break;
+
+            case 'type_search':
+                prop = 'type';
+                break;
+        }
+
+        let promise = this.prop_promises.get(prop);
+
+        if (promise === undefined) {
+            const init: FetchRequestInit = {
+                signal: this.aborter.signal,
+                cache: this.fetch_reload ? 'reload' : undefined,
+            };
+
+            promise = fetch(`data/card_${prop}.json`, init).then(async response => {
+                const { creation_time, data } = await response.json();
+
+                if (this.creation_time === null) {
+                    this.creation_time = new Date(creation_time);
+                } else if (this.creation_time.getTime() !== creation_time) {
+                    this.data_is_out_of_date();
+                }
+
+                switch (prop) {
+                    case 'colors':
+                    case 'cost': {
+                        for (const faces of data) {
+                            for (let i = 0, len = faces.length; i < len; i++) {
+                                const value_str = faces[i];
+
+                                // Ignore non-existent values. Also ignore empty mana costs of
+                                // the backside of transform cards.
+                                if (value_str === null
+                                    || (i >= 1 && prop === 'cost' && value_str === '')
+                                ) {
+                                    faces[i] = null;
+                                } else {
+                                    faces[i] = parse_mana_cost(value_str).cost;
+                                }
+                            }
+                        }
+
+                        break;
+                    }
+
+                    case 'identity': {
+                        for (let i = 0, len = data.length; i < len; i++) {
+                            data[i] = parse_mana_cost(data[i]).cost;
+                        }
+
+                        break;
+                    }
+
+                    case 'name': {
+                        const search_data = [];
+                        const inexact_data = [];
+
+                        for (const values of data) {
+                            search_data.push(
+                                values
+                                    .join(' // ')
+                                    .toLocaleLowerCase('en')
+                            );
+                            inexact_data.push(
+                                values
+                                    .join('')
+                                    .replace(INEXACT_REGEX, '')
+                                    .toLocaleLowerCase('en')
+                            );
+                        }
+
+                        this.props.set('name_search', search_data);
+                        this.props.set('name_inexact', inexact_data);
+                        break;
+                    }
+
+                    case 'oracle':
+                    case 'type': {
+                        const search_data = data.map((values: string[]) =>
+                            values.map(v => v.toLocaleLowerCase('en')));
+                        this.props.set((prop + '_search') as Prop, search_data);
+                        break;
+                    }
+
+                    case 'released_at': {
+                        for (const values of data) {
+                            for (let i = 0, len = values.length; i < len; i++) {
+                                values[i] = new Date(values[i] + 'T00:00:00Z');
+                            }
+                        }
+
+                        break;
+                    }
+                }
+
+                this.props.set(prop, data);
+                this.length = data.length;
+            });
+
+            this.prop_promises.set(prop, promise);
+        }
+
+        return promise;
+    }
+
+    /** Returns the value or values of a card property. */
+    get<T>(idx: number, prop: Prop): T | null {
+        return this.props.get(prop)?.at(idx) ?? null;
+    }
+
+    /** Returns the value or values of a property for a specific version. */
+    get_for_version<T>(idx: number, version_idx: number, prop: Prop): T | null {
+        // Reprint is a logical property, every version except the first is a reprint.
+        if (prop === 'reprint') {
+            return (version_idx !== 0) as T;
+        }
+
+        const value = this.props.get(prop)?.at(idx);
+
+        if (value == null) {
+            return null;
+        }
+
+        if (PER_VERSION_PROPS.includes(prop)) {
+            return value[version_idx] ?? null;
+        } else {
+            return value;
+        }
+    }
+
+    version_count(idx: number): number | null {
+        for (const pp_prop of PER_VERSION_PROPS) {
+            const values = this.get<any[]>(idx, pp_prop);
+
+            if (values !== null) {
+                return values.length;
+            }
+        }
+
+        return null;
+    }
+
+    name(idx: number): string | null {
+        const names = this.get<string[]>(idx, 'name');
+
+        if (names === null || names.length == 0) {
+            return null;
+        }
+
+        return names.join(' // ');
+    }
+
+    scryfall_url(idx: number): string | null {
+        const sfurl = this.get<string>(idx, 'sfurl');
+
+        if (sfurl === null) {
+            return null;
+        }
+
+        return `https://scryfall.com/${sfurl}`;
+    }
+
+    image_url(idx: number): string | null {
+        const imgs = this.get<string[]>(idx, 'img');
+
+        if (imgs === null || imgs.length === 0) {
+            return null;
+        }
+
+        return `https://cards.scryfall.io/normal/${imgs[0]}`;
+    }
+
+    async get_sorter(order: Sort_Order): Promise<Sorter> {
+        let promise = this.sorters.get(order);
+
+        if (promise === undefined) {
+            if (order === 'name') {
+                promise = Promise.resolve(new Default_Sorter(order));
+            } else {
+                const init: FetchRequestInit = {
+                    signal: this.aborter.signal,
+                    cache: this.fetch_reload ? 'reload' : undefined,
+                };
+
+                promise = fetch(`data/card_${order}.sort`, init).then(async response => {
+                    const sorter = new Index_Sorter(await response.arrayBuffer());
+                    assert_eq(sorter.order, order);
+
+                    if (this.creation_time === null) {
+                        this.creation_time = sorter.creation_time;
+                    } else if (this.creation_time.getTime() !== sorter.creation_time.getTime()) {
+                        this.data_is_out_of_date();
+                    }
+
+                    return sorter;
+                });
+            }
+
+            this.sorters.set(order, promise);
+        }
+
+        return promise;
     }
 }
 
@@ -2993,13 +3061,13 @@ async function find_cards_matching_query(
     const required_for_display_promises = [];
 
     for (const prop of query.props) {
-        required_for_query_promises.push(data.cards.load(prop));
+        required_for_query_promises.push(data.load(prop));
     }
 
     const sorter_promise = data.get_sorter(sort_order);
 
     for (const prop of Array<Prop>('sfurl', 'img')) {
-        required_for_display_promises.push(data.cards.load(prop));
+        required_for_display_promises.push(data.load(prop));
     }
 
     // Await data loads necessary for query.
@@ -3009,14 +3077,14 @@ async function find_cards_matching_query(
 
     // Await the smallest display property if we have no necessary properties to wait for, just to
     // get the amount of cards.
-    if (data.cards.length === null) {
+    if (data.length === null) {
         await required_for_display_promises[0];
     }
 
     logger.time_end('find_cards_matching_query_load');
     logger.time('find_cards_matching_query_evaluate');
 
-    const len = data.cards.length ?? 0;
+    const len = data.length ?? 0;
     const add_version_idx = is_by_version_order(sort_order);
     const evaluator = new Query_Evaluator(query, true, true);
 
@@ -3032,7 +3100,7 @@ async function find_cards_matching_query(
             }
         } catch (e) {
             throw Error(
-                `Couldn't evaluate query with "${data.cards.name(card_idx)}".`,
+                `Couldn't evaluate query with "${data.name(card_idx)}".`,
                 { cause: e },
             );
         }
@@ -3082,10 +3150,10 @@ class Query_Evaluator {
         this.card_idx = card_idx;
         this.logger = logger;
 
-        const version_count = data.cards.version_count(card_idx) ?? 1;
+        const version_count = data.version_count(card_idx) ?? 1;
 
         if (logger.should_log) {
-            const name = data.cards.name(card_idx);
+            const name = data.name(card_idx);
             logger.log('evaluating query with', name, card_idx, 'versions', version_count);
         }
 
@@ -3285,7 +3353,7 @@ class Query_Evaluator {
         condition: Comparison_Condition | Substring_Condition | Predicate_Condition | Range_Condition,
         version_idx: number,
     ): boolean {
-        let values: any = data.cards.get_for_version(this.card_idx, version_idx, condition.prop);
+        let values: any = data.get_for_version(this.card_idx, version_idx, condition.prop);
 
         if (!Array.isArray(values)) {
             values = [values];
@@ -3515,7 +3583,7 @@ async function run_test_suite() {
                 () => Nop_Logger,
             );
 
-            const actual = new Set(result.cards.map(idx => data.cards.name(idx)));
+            const actual = new Set(result.cards.map(idx => data.name(idx)));
 
             if (expected.size !== result.length || !deep_eq(actual, expected)) {
                 const missing_set = expected.difference(actual);
@@ -3545,7 +3613,7 @@ async function run_test_suite() {
                     'name',
                     true,
                     logger,
-                    idx => (log_set.has(data.cards.name(idx)) ? logger : Nop_Logger),
+                    idx => (log_set.has(data.name(idx)) ? logger : Nop_Logger),
                 );
 
                 const max_warn = unexpected_set.size > 5 ? ' (showing max. 5)' : '';
@@ -4308,7 +4376,7 @@ async function run_test_suite() {
     );
 
     // Load all data in advance, so timings are more meaningful.
-    const loads = PROPS.map(p => data.cards.load(p));
+    const loads = PROPS.map(p => data.load(p));
 
     for (const load of loads) {
         await load;
@@ -4394,7 +4462,7 @@ async function run_benchmarks() {
                 small_set_optimization,
             ),
             evaluator => {
-                const len = data.cards.length!;
+                const len = data.length!;
                 let result = 0;
 
                 for (let card_idx = 0; card_idx < len; card_idx++) {
@@ -4415,7 +4483,7 @@ async function run_benchmarks() {
     Console_Logger.info('Running benchmarks.');
 
     // Load all data in advance.
-    const loads = PROPS.map(p => data.cards.load(p));
+    const loads = PROPS.map(p => data.load(p));
 
     for (const load of loads) {
         await load;

@@ -171,7 +171,8 @@ async function preprocess() {
 
     console.log('Generating indices.');
 
-    const sort_indices = generate_sort_indices(cards);
+    const creation_time = new Date;
+    const sort_indices = generate_sort_indices(cards, creation_time);
 
     console.log('Writing output files.');
 
@@ -204,7 +205,10 @@ async function preprocess() {
         await Bun.write(
             `data/card_${prop}.json`,
             JSON.stringify(
-                cards.map(c => c[prop]),
+                {
+                    creation_time: creation_time.getTime(),
+                    data: cards.map(c => c[prop]),
+                },
                 json_replacer,
             ),
         );
@@ -218,7 +222,10 @@ async function preprocess() {
         await Bun.write(
             `data/card_${prop}.json`,
             JSON.stringify(
-                cards.map(c => c.versions.map(v => v[prop])),
+                {
+                    creation_time: creation_time.getTime(),
+                    data: cards.map(c => c.versions.map(v => v[prop])),
+                },
                 json_replacer,
             ),
         );
@@ -463,12 +470,9 @@ class Buf_Writer {
         this.#pos += 4;
     }
 
-    write_u32_zeroes(n: number) {
-        for (let i = 0; i < n; i++) {
-            this.#view.setUint32(this.#pos, 0, this.#le);
-        }
-
-        this.#pos += 4 * n;
+    write_u64(n: bigint) {
+        this.#view.setBigUint64(this.#pos, n, this.#le);
+        this.#pos += 8;
     }
 
     write_utf8(s: string, n: number) {
@@ -543,10 +547,25 @@ function full_card_name(card: Card): string {
     return card.name.join(' // ');
 }
 
-function generate_sort_indices(cards: Card[]): { prop: string, index: ArrayBuffer }[] {
+function generate_sort_indices(
+    cards: Card[],
+    creation_time: Date,
+): { prop: string, index: ArrayBuffer }[] {
     return [
-        generate_index(cards, 'cmc', 1, card => card.cmc),
-        generate_index(cards, 'released_at', 2, version => version.released_at.getTime()),
+        generate_index(
+            cards,
+            'cmc',
+            1,
+            creation_time,
+            card => card.cmc,
+        ),
+        generate_index(
+            cards,
+            'released_at',
+            2,
+            creation_time,
+            version => version.released_at.getTime(),
+        ),
     ];
 }
 
@@ -554,6 +573,7 @@ function generate_index(
     cards: Card[],
     prop: string,
     type: number,
+    creation_time: Date,
     get_value: (card_or_version: any) => any,
 ) {
     let entries: {
@@ -587,7 +607,7 @@ function generate_index(
     const groups = unsorted_groups.sort(([a], [b]) => a - b);
 
     const buf = new Buf_Writer(5 * entries.length);
-    write_header(buf, type, prop)
+    write_header(buf, type, creation_time, prop)
     write_group_table(buf, groups);
 
     // Indices into the master card list per group.
@@ -607,17 +627,20 @@ function generate_index(
     };
 }
 
-/** Writes a 24-byte header. */
-function write_header(buf: Buf_Writer, type: number, order: string) {
+/** Writes a 32-byte header. */
+function write_header(buf: Buf_Writer, type: number, creation_time: Date, order: string) {
+    const start = buf.pos;
     // File starts with identifier.
     buf.write_utf8("MTGI", 4);
     // Index format version.
-    buf.write_u16(2);
+    buf.write_u16(3);
     // Index type.
     buf.write_u8(type);
     // Reserved byte.
     buf.write_u8(0);
+    buf.write_u64(BigInt(creation_time.getTime()));
     buf.write_utf8(order, 16);
+    assert(buf.pos === start + 32);
 }
 
 function write_group_table(buf: Buf_Writer, groups: Array<[any, Array<any>]>) {
