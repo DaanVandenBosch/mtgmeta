@@ -3404,6 +3404,8 @@ class Query_Evaluator {
                     return true;
                 }
             }
+
+            return false;
         } else if (is_color_or_id || condition.prop === 'cost') {
             const cond_value = (condition as Comparison_Condition).value as Mana_Cost;
 
@@ -3444,6 +3446,8 @@ class Query_Evaluator {
                     return true;
                 }
             }
+
+            return false;
         } else {
             let eq: (a: any, b: any) => boolean = (a, b) => a === b;
             let compare: (a: any, b: any) => number = (a, b) => a - b;
@@ -3514,13 +3518,19 @@ class Query_Evaluator {
                         unreachable(`Invalid condition type "${(condition as Condition).type}".`);
                 }
 
-                if (result) {
-                    return true;
+                if (condition.type === 'ne') {
+                    if (!result) {
+                        return false;
+                    }
+                } else {
+                    if (result) {
+                        return true;
+                    }
                 }
             }
-        }
 
-        return false;
+            return condition.type === 'ne';
+        }
     }
 }
 
@@ -4288,6 +4298,13 @@ async function run_test_suite() {
         'effectively empty negation',
         '-.',
         [],
+    );
+
+    // Negation means "true if no version of this card matches the nested condition".
+    test_query(
+        'negate condition on version-specific property',
+        '-f:premodern carpet',
+        ["Al-abara's Carpet"],
     );
 
     test_query(
