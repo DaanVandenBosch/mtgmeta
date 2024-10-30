@@ -76,7 +76,7 @@ const POOL_PREMODERN_PAUPER_COMMANDER = 'pmpc';
 const POOL_PREMODERN_PEASANT = 'pmpst';
 const POOL_PREMODERN_PEASANT_COMMANDER = 'pmpstc';
 
-const POOLS: { [key: string]: Query } = {};
+const POOLS: { [K: string]: Query } = {};
 
 type Sort_Order = 'cmc' | 'name' | 'released_at';
 const SORT_ORDERS: Sort_Order[] = ['cmc', 'name', 'released_at'];
