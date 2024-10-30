@@ -214,7 +214,7 @@ header {
     height: 100%;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 800px) {
     body {
         --card-width: 183px;
         --card-height: 255px;
@@ -242,12 +242,5 @@ header {
     .pool {
         grid-column-start: 2;
         grid-column-end: 4;
-    }
-}
-
-@media (max-width: 400px) {
-    body {
-        --card-width: 244px;
-        --card-height: 340px;
     }
 }
