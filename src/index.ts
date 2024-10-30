@@ -4129,7 +4129,7 @@ async function run_test_suite() {
     test_query(
         'mana<0',
         'm<0 ever',
-        ['Everglades', 'Evermind', 'Needleverge Pathway // Pillarverge Pathway'],
+        ['Blazemire Verge', 'Everglades', 'Evermind', 'Gloomlake Verge', 'Needleverge Pathway // Pillarverge Pathway', 'Thornspire Verge'],
     );
 
     // This is a weird one, zero-cost and no-cost are less than any nonzero cost.
