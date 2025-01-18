@@ -455,7 +455,7 @@ function validate(card: Sf_Card) {
 }
 
 class Buf_Writer {
-    #view: DataView;
+    #view: DataView<ArrayBuffer>;
     #le = true;
     #pos = 0;
 

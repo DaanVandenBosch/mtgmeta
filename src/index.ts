@@ -115,21 +115,21 @@ const inputs: Inputs = {
 let result: { cards: number[], length: number } | null = null;
 
 /** All DOM elements that the user interacts with. */
-const ui = {
-    query_el: undefined as any as HTMLInputElement,
-    show_extra_el: undefined as any as HTMLButtonElement,
-    extra_el: undefined as any as HTMLButtonElement,
-    pool_el: undefined as any as HTMLSelectElement,
-    sort_order_el: undefined as any as HTMLSelectElement,
-    sort_dir_asc_el: undefined as any as HTMLInputElement,
-    sort_dir_desc_el: undefined as any as HTMLInputElement,
-    result_summary_el: undefined as any as HTMLElement,
-    result_prev_el: undefined as any as HTMLButtonElement,
-    result_next_el: undefined as any as HTMLButtonElement,
-    result_first_el: undefined as any as HTMLButtonElement,
-    result_last_el: undefined as any as HTMLButtonElement,
-    result_cards_el: undefined as any as HTMLElement,
-};
+const ui: {
+    query_el: HTMLInputElement,
+    show_extra_el: HTMLButtonElement,
+    extra_el: HTMLButtonElement,
+    pool_el: HTMLSelectElement,
+    sort_order_el: HTMLSelectElement,
+    sort_dir_asc_el: HTMLInputElement,
+    sort_dir_desc_el: HTMLInputElement,
+    result_summary_el: HTMLElement,
+    result_prev_el: HTMLButtonElement,
+    result_next_el: HTMLButtonElement,
+    result_first_el: HTMLButtonElement,
+    result_last_el: HTMLButtonElement,
+    result_cards_el: HTMLElement,
+} = {} as any;
 
 const TEXT_DECODER = new TextDecoder();
 
