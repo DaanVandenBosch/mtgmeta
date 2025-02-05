@@ -75,6 +75,8 @@ const POOL_PREMODERN_PAUPER = 'pmp';
 const POOL_PREMODERN_PAUPER_COMMANDER = 'pmpc';
 const POOL_PREMODERN_PEASANT = 'pmpst';
 const POOL_PREMODERN_PEASANT_COMMANDER = 'pmpstc';
+const POOL_MODERN_PAUPER = 'mp';
+const POOL_MODERN_PAUPER_COMMANDER = 'mpc';
 
 const POOLS: { [K: string]: Query } = {};
 
@@ -146,6 +148,10 @@ async function init() {
         parse_query('date<2003-07-29 rarity<=uncommon -"Library of Alexandria" -"Strip Mine" -"Wasteland" -"Maze of Ith" -"Sol Ring"');
     POOLS[POOL_PREMODERN_PEASANT_COMMANDER] =
         parse_query('date<2003-07-29 rarity:rare type:creature');
+    POOLS[POOL_MODERN_PAUPER] =
+        parse_query('date>=2003-07-29 date<2014-07-18 rarity:common');
+    POOLS[POOL_MODERN_PAUPER_COMMANDER] =
+        parse_query('date>=2003-07-29 date<2014-07-18 rarity:uncommon type:creature');
 
     data = new Data;
 
@@ -4139,7 +4145,7 @@ async function run_test_suite() {
     test_query(
         'mana<0',
         'm<0 ever',
-        ['Blazemire Verge', 'Everglades', 'Evermind', 'Gloomlake Verge', 'Needleverge Pathway // Pillarverge Pathway', 'Thornspire Verge'],
+        ['Blazemire Verge', 'Bleachbone Verge', 'Everglades', 'Evermind', 'Gloomlake Verge', 'Needleverge Pathway // Pillarverge Pathway', 'Riverpyre Verge', 'Thornspire Verge'],
     );
 
     // This is a weird one, zero-cost and no-cost are less than any nonzero cost.
@@ -4152,20 +4158,20 @@ async function run_test_suite() {
     test_query(
         'rarity=',
         'rarity=c m>=ggg',
-        ['Feral Thallid', 'Kindercatch', 'Nyxborn Colossus'],
+        ['Kindercatch', 'Nyxborn Colossus'],
     );
 
     // Same as =
     test_query(
         'rarity:',
         'r:c m>=ggg',
-        ['Feral Thallid', 'Kindercatch', 'Nyxborn Colossus'],
+        ['Kindercatch', 'Nyxborn Colossus'],
     );
 
     test_query(
         'rarity<',
         'RARity<UNcommon m>=ggg',
-        ['Feral Thallid', 'Kindercatch', 'Nyxborn Colossus'],
+        ['Kindercatch', 'Nyxborn Colossus'],
     );
 
     test_query(

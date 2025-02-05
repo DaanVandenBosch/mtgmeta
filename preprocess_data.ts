@@ -132,23 +132,20 @@ class Preprocessor {
             }
         }
 
-        // Filter out cards we don't want.
+        // Filter out cards and versions we don't want.
         this.cards = this.cards.filter(dst_card => {
             if (dst_card.versions.length === 0) {
                 throw Error(`Card "${full_card_name(dst_card)}" has no versions.`);
             }
 
-            return !dst_card.versions.every(version => {
-                if (version.digital
-                    || version.promo_types.some(pt => EXCLUDED_PROMO_TYPES.includes(pt))
-                    || EXCLUDED_SET_TYPES.includes(version.set_type)
-                    || EXCLUDED_LAYOUTS.includes(version.layout)
-                ) {
-                    return true;
-                }
+            dst_card.versions = dst_card.versions.filter(version =>
+                !version.digital
+                && !version.promo_types.some(pt => EXCLUDED_PROMO_TYPES.includes(pt))
+                && !EXCLUDED_SET_TYPES.includes(version.set_type)
+                && !EXCLUDED_LAYOUTS.includes(version.layout)
+            );
 
-                return false;
-            });
+            return dst_card.versions.length > 0;
         });
 
         console.log('Sorting.');
