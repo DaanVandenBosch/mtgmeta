@@ -12,6 +12,8 @@ type Prop =
     'name_inexact' |
     'oracle' |
     'oracle_search' |
+    'full_oracle' |
+    'full_oracle_search' |
     'rarity' |
     'released_at' |
     'reprint' |
@@ -32,6 +34,8 @@ const PROPS: Prop[] = [
     'name_inexact',
     'oracle',
     'oracle_search',
+    'full_oracle',
+    'full_oracle_search',
     'rarity',
     'released_at',
     'reprint',
@@ -1419,8 +1423,10 @@ class Data {
                 prop = 'name';
                 break;
 
+            case 'oracle':
             case 'oracle_search':
-                prop = 'oracle';
+            case 'full_oracle_search':
+                prop = 'full_oracle';
                 break;
 
             case 'reprint':
@@ -1511,10 +1517,42 @@ class Data {
                         break;
                     }
 
-                    case 'oracle':
+                    case 'full_oracle': {
+                        const oracle_data = [];
+                        const oracle_search_data = [];
+                        const full_oracle_search_data = [];
+
+                        for (const full_oracle_texts of data) {
+                            const oracle_texts = [];
+                            const oracle_search_texts = [];
+                            const full_oracle_search_values = [];
+
+                            for (const full_oracle_text of full_oracle_texts) {
+                                const oracle_text = remove_parenthesized_text(full_oracle_text);
+                                oracle_texts.push(oracle_text);
+                                oracle_search_texts.push(
+                                    oracle_text.toLocaleLowerCase('en')
+                                );
+                                full_oracle_search_values.push(
+                                    full_oracle_text.toLocaleLowerCase('en')
+                                );
+                            }
+
+                            oracle_data.push(oracle_texts);
+                            oracle_search_data.push(oracle_search_texts);
+                            full_oracle_search_data.push(full_oracle_search_values);
+                        }
+
+                        this.props.set('oracle', oracle_data);
+                        this.props.set('oracle_search', oracle_search_data);
+                        this.props.set('full_oracle_search', full_oracle_search_data);
+                        break;
+                    }
+
                     case 'type': {
                         const search_data = data.map((values: string[]) =>
-                            values.map(v => v.toLocaleLowerCase('en')));
+                            values.map(v => v.toLocaleLowerCase('en'))
+                        );
                         this.props.set((prop + '_search') as Prop, search_data);
                         break;
                     }
@@ -1920,9 +1958,12 @@ class Query_Parser {
 
             case 'oracle':
             case 'o':
+                result = this.parse_substring_cond(operator, 'oracle_search');
+                break;
+
             case 'fulloracle':
             case 'fo':
-                result = this.parse_oracle_cond(operator);
+                result = this.parse_substring_cond(operator, 'full_oracle_search');
                 break;
 
             case 'rarity':
@@ -1939,7 +1980,7 @@ class Query_Parser {
 
             case 'type':
             case 't':
-                result = this.parse_type_cond(operator);
+                result = this.parse_substring_cond(operator, 'type_search');
                 break;
 
             case 'year':
@@ -2342,7 +2383,7 @@ class Query_Parser {
         }
     }
 
-    private parse_oracle_cond(operator: Operator): Substring_Condition | null {
+    private parse_substring_cond(operator: Operator, prop: Prop): Substring_Condition | null {
         if (operator !== ':' && operator !== '=') {
             return null;
         }
@@ -2355,7 +2396,7 @@ class Query_Parser {
 
         return this.add_prop({
             type: 'substring',
-            prop: 'oracle_search',
+            prop,
             value: value.toLocaleLowerCase('en'),
         });
     }
@@ -2412,24 +2453,6 @@ class Query_Parser {
             type: this.operator_to_type(operator, 'eq'),
             prop: 'rarity',
             value,
-        });
-    }
-
-    private parse_type_cond(operator: Operator): Substring_Condition | null {
-        if (operator !== ':' && operator !== '=') {
-            return null;
-        }
-
-        const { value } = this.parse_string();
-
-        if (value.length === 0) {
-            return null;
-        }
-
-        return this.add_prop({
-            type: 'substring',
-            prop: 'type_search',
-            value: value.toLocaleLowerCase('en'),
         });
     }
 
@@ -3060,6 +3083,51 @@ function mana_cost_is_super_set(
         logger.log("a doesn't have more symbols than b.", a, b);
         return false;
     }
+}
+
+function remove_parenthesized_text(s: string): string {
+    const len = s.length;
+    let start_idx = 0;
+    let paren_count = 0;
+    let result = '';
+
+    for (let i = 0; i < len; i++) {
+        switch (s[i]) {
+            case '(': {
+                if (paren_count <= 0) {
+                    // Reset paren count to zero in case there were more right parens than left
+                    // parens. This makes us ignore excess right parens.
+                    paren_count = 0;
+                    let end_idx = i;
+
+                    if (end_idx > 0 && s[end_idx - 1] === ' ') {
+                        end_idx--;
+                    }
+
+                    result += s.slice(start_idx, end_idx);
+                }
+
+                paren_count++;
+                break;
+            }
+
+            case ')': {
+                paren_count--;
+
+                if (paren_count <= 0) {
+                    start_idx = i + 1;
+                }
+
+                break;
+            }
+        }
+    }
+
+    if (paren_count === 0) {
+        result += s.slice(start_idx, s.length);
+    }
+
+    return result;
 }
 
 async function find_cards_matching_query(
@@ -4007,6 +4075,48 @@ async function run_test_suite() {
         }
     });
 
+    test('remove_parenthesized_text doesn\'t change text without parens.', () => {
+        const fo = 'This is text.';
+        const o = remove_parenthesized_text(fo);
+
+        assert_eq(o, 'This is text.')
+    });
+
+    test('remove_parenthesized_text removes spaces around.', () => {
+        const fo = 'This is (reminder) text.';
+        const o = remove_parenthesized_text(fo);
+
+        assert_eq(o, 'This is text.')
+    });
+
+    test('remove_parenthesized_text removes spaces around, but not punctuation.', () => {
+        const fo = 'This is (reminder), text.';
+        const o = remove_parenthesized_text(fo);
+
+        assert_eq(o, 'This is, text.')
+    });
+
+    test('remove_parenthesized_text removes all reminder text.', () => {
+        const fo = 'This is (reminder) text, this (here), too.';
+        const o = remove_parenthesized_text(fo);
+
+        assert_eq(o, 'This is text, this, too.')
+    });
+
+    test('remove_parenthesized_text ignores extraneous right parens.', () => {
+        const fo = 'This is (reminder)) text, this (here), too.';
+        const o = remove_parenthesized_text(fo);
+
+        assert_eq(o, 'This is text, this, too.')
+    });
+
+    test('remove_parenthesized_text doesn\'t ignore extraneous left parens.', () => {
+        const fo = 'This is ((reminder) text, this (here), too.';
+        const o = remove_parenthesized_text(fo);
+
+        assert_eq(o, 'This is')
+    });
+
     test_query(
         'name, ignore punctuation',
         't.a/\\,m\'":i;yoc',
@@ -4202,6 +4312,19 @@ async function run_test_suite() {
         'oracle=',
         'oracle="it deals 6 damage to each creature"',
         ['Bloodfire Colossus', 'Tornado Elemental', 'Lord of Shatterskull Pass', 'Cathedral Membrane', 'Lavabrink Floodgates'],
+    );
+
+    // Reminder text shouldn't match.
+    test_query(
+        'oracle reminder text',
+        'oracle:"to mill a card,"',
+        [],
+    );
+
+    test_query(
+        'fulloracle:',
+        'fulloracle:"to mill a card," t:instant',
+        ['Dig Up the Body', 'Wasteful Harvest'],
     );
 
     test_query(

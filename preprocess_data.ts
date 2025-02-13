@@ -61,7 +61,7 @@ type Card = {
     cost: string[],
     img: string[],
     name: string[],
-    oracle: string[],
+    full_oracle: string[],
     type: (string | null)[],
 }
 
@@ -195,7 +195,7 @@ class Preprocessor {
             'identity',
             'img',
             'name',
-            'oracle',
+            'full_oracle',
             'sfurl',
             'type',
         ] as (keyof Card)[]) {
@@ -265,7 +265,7 @@ class Preprocessor {
             cost: [],
             img: [],
             name: [],
-            oracle: [],
+            full_oracle: [],
             type: [],
         };
 
@@ -274,7 +274,7 @@ class Preprocessor {
         for (const src_face of src_card.card_faces ?? [src_card]) {
             dst_card.cost.push(src_face.mana_cost!);
             dst_card.name.push(src_face.name);
-            dst_card.oracle.push(src_face.oracle_text!);
+            dst_card.full_oracle.push(src_face.oracle_text!);
             dst_card.type.push(src_face.type_line ?? null);
         }
 
