@@ -587,17 +587,28 @@ async function filter(logger: Logger) {
     const end_pos = start_idx + view_result.length;
 
     for (const card_idx of view_result) {
+        const div: HTMLDivElement = el('div');
+        div.className = 'card_wrapper';
+
+        const types = data.get<string[]>(card_idx, 'type');
+
+        if (types && (types[0].startsWith('Battle ') || types[0].startsWith('Plane '))) {
+            div.classList.add('landscape');
+        }
+
         const a: HTMLAnchorElement = el('a');
         a.className = 'card';
         a.href = data.scryfall_url(card_idx) ?? '';
         a.target = '_blank';
+        a.rel = 'noreferrer';
+        div.append(a);
 
         const img: HTMLImageElement = el('img');
         img.loading = 'lazy';
         img.src = data.image_url(card_idx) ?? '';
         a.append(img);
 
-        frag.append(a);
+        frag.append(div);
     }
 
     // TODO: Don't overwrite "Loading..." if another query has been fired off that requires a load.
@@ -3072,7 +3083,7 @@ async function find_cards_matching_query(
 
     const sorter_promise = data.get_sorter(sort_order);
 
-    for (const prop of Array<Prop>('sfurl', 'img')) {
+    for (const prop of Array<Prop>('sfurl', 'img', 'type')) {
         required_for_display_promises.push(data.load(prop));
     }
 
@@ -4189,8 +4200,8 @@ async function run_test_suite() {
     // Same as :
     test_query(
         'oracle=',
-        'oracle=bloodfire',
-        ['Bloodfire Colossus', 'Bloodfire Dwarf', 'Bloodfire Enforcers', 'Bloodfire Infusion', 'Bloodfire Kavu'],
+        'oracle="it deals 6 damage to each creature"',
+        ['Bloodfire Colossus', 'Tornado Elemental', 'Lord of Shatterskull Pass', 'Cathedral Membrane', 'Lavabrink Floodgates'],
     );
 
     test_query(

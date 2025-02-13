@@ -10,6 +10,7 @@ body {
     --light: rgb(240, 232, 232);
     --hilight: rgb(255, 99, 99);
     --card-width: 244px;
+    --card-half-width: 122px;
     --card-height: 340px;
     --card-border-radius: 12px;
 
@@ -187,15 +188,25 @@ header {
 
 .cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, var(--card-width));
-    grid-template-rows: repeat(auto-fill, var(--card-height));
+    grid-template-columns: repeat(auto-fill, var(--card-half-width) var(--card-half-width));
     justify-content: center;
-    gap: 6px;
+    justify-items: stretch;
+    align-items: stretch;
     margin: 10px;
+    gap: 6px 3px;
+}
+
+.card_wrapper {
+    grid-column: span 2;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 .card {
     display: flex;
+    justify-content: center;
+    align-items: center;
     width: var(--card-width);
     height: var(--card-height);
     border-radius: var(--card-border-radius);
@@ -210,8 +221,23 @@ header {
 }
 
 .card>img {
-    width: 100%;
-    height: 100%;
+    width: var(--card-width);
+    height: var(--card-height);
+}
+
+.card_wrapper.landscape {
+    grid-column: span 3;
+}
+
+.card_wrapper.landscape>.card {
+    width: var(--card-height);
+    height: var(--card-width);
+}
+
+.card_wrapper.landscape>.card>img {
+    width: var(--card-width);
+    height: var(--card-height);
+    transform: rotate(90deg);
 }
 
 @media (max-width: 800px) {
