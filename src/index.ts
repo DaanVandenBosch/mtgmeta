@@ -177,18 +177,57 @@ async function init() {
     window.onpopstate = () => set_inputs_from_params(get_params(), false);
 
     document.onkeydown = e => {
-        if (e.key === 'f'
-            && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey
-            && document.activeElement !== ui.query_el
-        ) {
-            e.preventDefault();
-            ui.query_el.focus();
+        const el = document.activeElement;
+
+        if (el === null || !['BUTTON', 'INPUT', 'SELECT'].includes(el.tagName)) {
+            switch (keybind(e)) {
+                case 'f':
+                case '/':
+                    e.preventDefault();
+                    ui.query_el.focus();
+                    break;
+                case 'ArrowDown': {
+                    e.preventDefault();
+                    move_card_focus('down');
+                    break;
+                }
+                case 'ArrowUp': {
+                    e.preventDefault();
+                    move_card_focus('up');
+                    break;
+                }
+                case 'ArrowLeft': {
+                    e.preventDefault();
+                    move_card_focus('left');
+                    break;
+                }
+                case 'ArrowRight': {
+                    e.preventDefault();
+                    move_card_focus('right');
+                    break;
+                }
+            }
         }
     };
 
     ui.query_el.onkeydown = e => {
-        if (e.key === 'Enter') {
-            set_inputs({ query_string: ui.query_el.value });
+        switch (keybind(e)) {
+            case 'Enter':
+                set_inputs({ query_string: ui.query_el.value });
+                break;
+            case 'ArrowDown': {
+                e.preventDefault();
+                e.stopPropagation();
+                move_card_focus('down');
+                break;
+            }
+            case 'ArrowUp': {
+                // Because we break the regular down arrow behavior, we also break the up arrow for
+                // consistency.
+                e.preventDefault();
+                e.stopPropagation();
+                break;
+            }
         }
     };
 
@@ -249,6 +288,123 @@ async function init() {
     if (benchmarks_param === true) {
         await run_benchmarks();
     }
+}
+
+function keybind(e: KeyboardEvent): string {
+    let bind = [];
+
+    if (e.ctrlKey) {
+        bind.push('Ctrl');
+    }
+
+    if (e.altKey) {
+        bind.push('Alt');
+    }
+
+    if (e.shiftKey) {
+        bind.push('Shift');
+    }
+
+
+    if (e.metaKey) {
+        bind.push('Meta');
+    }
+
+    if (e.key !== '') {
+        bind.push(e.key);
+    }
+
+    return bind.join(' ');
+}
+
+function move_card_focus(dir: 'up' | 'down' | 'left' | 'right') {
+    const children = ui.result_cards_el.children;
+    const len = children.length;
+
+    if (result === null) {
+        return;
+    }
+
+    const card_el = document.activeElement as HTMLElement | null;
+    const old_idx = Array.prototype.indexOf.call(children, card_el?.parentElement);
+    let new_card_el: HTMLElement;
+
+    if (card_el === null || old_idx === -1) {
+        switch (dir) {
+            case 'up': {
+                new_card_el = children[children.length - 1].children[0] as HTMLElement;
+                break;
+            }
+            case 'down': {
+                new_card_el = children[0].children[0] as HTMLElement;
+                break;
+            }
+            case 'left':
+            case 'right': {
+                return;
+            }
+        }
+    } else {
+        outer: switch (dir) {
+            case 'up': {
+                for (let i = old_idx - 1; i >= 0; i--) {
+                    const prev_card_el = children[i].children[0] as HTMLElement;
+
+                    if (prev_card_el.offsetTop + prev_card_el.offsetHeight < card_el.offsetTop
+                        && prev_card_el.offsetLeft < card_el.offsetLeft + card_el.offsetWidth
+                    ) {
+                        new_card_el = prev_card_el;
+                        break outer;
+                    }
+                }
+
+                ui.query_el.focus();
+                return;
+            }
+            case 'down': {
+                for (let i = old_idx + 1; i < len; i++) {
+                    const next_card_el = children[i].children[0] as HTMLElement;
+
+                    if (next_card_el.offsetTop > card_el.offsetTop + card_el.offsetHeight
+                        && next_card_el.offsetLeft + next_card_el.offsetWidth > card_el.offsetLeft
+                    ) {
+                        new_card_el = next_card_el;
+                        break outer;
+                    }
+                }
+
+                // Go to the end of the last row if we're at the next to last row even if that would
+                // mean we would move to the left. This way you'll see all the cards by pressing
+                // down continuously.
+                if (old_idx + 1 < len) {
+                    new_card_el = children[len - 1].children[0] as HTMLElement;
+                    break outer;
+
+                }
+
+                return;
+            }
+            case 'left': {
+                if (old_idx > 0) {
+                    new_card_el = children[old_idx - 1].children[0] as HTMLElement;
+                    break outer;
+                }
+
+                return;
+            }
+            case 'right': {
+                if (old_idx + 1 < len) {
+                    new_card_el = children[old_idx + 1].children[0] as HTMLElement;
+                    break outer;
+                }
+
+                return;
+            }
+        }
+    }
+
+    new_card_el.scrollIntoView({ block: 'nearest' });
+    new_card_el.focus();
 }
 
 async function set_inputs(new_inputs: Partial_Inputs) {

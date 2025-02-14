@@ -289,6 +289,16 @@ class Preprocessor {
                     src.image_uris.normal.replace('https://cards.scryfall.io/normal/', ''),
                 );
             }
+
+            // TODO: Send as binary data?
+            // if (src.image_uris !== undefined) {
+            //     const m = /^https:\/\/cards\.scryfall\.io\/normal\/(front|back)\/\[0-9a-f]\/[0-9a-f]\/([0-9a-f-]+)\.jpg\?(\d+)$/
+            //         .exec(src.image_uris.normal);
+
+            //     assert(m !== null, () => `Unexpected image URI "${src.image_uris?.normal}".`)
+
+            //     const [_all, _front_or_back, uuid, timestamp] = m;
+            // }
         }
 
         this.add_version(src_card, dst_card);
