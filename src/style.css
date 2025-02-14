@@ -242,8 +242,9 @@ header {
 
 @media (max-width: 800px) {
     body {
-        --card-width: 183px;
-        --card-height: 255px;
+        --card-width: 184px;
+        --card-half-width: 92px;
+        --card-height: 256px;
         --card-border-radius: 10px;
     }
 
