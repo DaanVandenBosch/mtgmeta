@@ -42,7 +42,6 @@ button {
     color: var(--light);
     padding: 3px 8px;
     border: none;
-    /* border: solid 2px var(--light); */
     border-radius: 3px;
     font-size: 13px;
 }
@@ -98,6 +97,18 @@ header {
 
 .filter_show_extra {
     display: none;
+    flex-direction: column;
+    width: 32px;
+    height: 32px;
+    padding: 5px;
+    align-items: stretch;
+    justify-content: space-evenly;
+}
+
+.filter_show_extra>div {
+    background-color: var(--light);
+    height: 2px;
+    border-radius: 1px;
 }
 
 .query {
@@ -169,10 +180,10 @@ header {
     gap: 4px;
 }
 
-.result_first,
-.result_last {
-    padding-top: 1px;
-    padding-bottom: 3px;
+.result_buttons>button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .result_summary,
@@ -254,7 +265,7 @@ header {
     }
 
     .filter_show_extra {
-        display: unset;
+        display: flex;
     }
 
     .filter_extra {
