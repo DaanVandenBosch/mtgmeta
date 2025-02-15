@@ -353,6 +353,8 @@ function move_card_focus(dir: 'up' | 'down' | 'left' | 'right') {
             case 'right': {
                 return;
             }
+            default:
+                unreachable(`Unknown direction "${dir}".`);
         }
     } else {
         outer: switch (dir) {
@@ -410,6 +412,8 @@ function move_card_focus(dir: 'up' | 'down' | 'left' | 'right') {
 
                 return;
             }
+            default:
+                unreachable(`Unknown direction "${dir}".`);
         }
     }
 
@@ -2369,34 +2373,25 @@ class Query_Parser {
         });
     }
 
-    private parse_date_cond(operator: Operator): Comparison_Condition | null {
+    private parse_date_cond(operator: Operator): Condition | null {
         const start_pos = 0;
-        const match = this.parse_regex(/(\d{4})-(\d{2})-(\d{2})/y);
+        const match = this.parse_regex(/(\d{4})(-(\d{2})(-(\d{2}))?)?/y);
 
         if (match === null) {
             return null;
         }
 
-        const [date_str, year_str, month_str, day_str] = match;
-
-        const date = new Date(date_str + 'T00:00:00Z');
+        const [_ignore0, year_str, _ignore1, month_group, _ignore2, day_group] = match;
         const year = string_to_int(year_str) as number;
-        const month = string_to_int(month_str) as number;
-        const day = string_to_int(day_str) as number;
+        const month = string_to_int(month_group);
+        const day = string_to_int(day_group);
+        const cond = this.create_released_at_cond(operator, year, month, day);
 
-        if (date.getFullYear() !== year
-            || date.getMonth() !== month - 1
-            || date.getDate() !== day
-        ) {
+        if (cond === null) {
             this.pos = start_pos;
-            return null;
         }
 
-        return this.add_prop({
-            type: this.operator_to_type(operator, 'eq'),
-            prop: 'released_at',
-            value: date,
-        });
+        return cond;
     }
 
     private parse_format_cond(operator: Operator): Comparison_Condition | null {
@@ -2622,49 +2617,21 @@ class Query_Parser {
         });
     }
 
-    private parse_year_cond(
-        operator: Operator,
-    ): Comparison_Condition | Range_Condition | null {
+    private parse_year_cond(operator: Operator): Condition | null {
         const start_pos = 0;
         const year = string_to_int(this.parse_word());
 
         if (year === null) {
-            this.pos = start_pos;
             return null;
         }
 
-        this.props.add('released_at');
+        const cond = this.create_released_at_cond(operator, year, null, null);
 
-        const type = this.operator_to_type(operator, 'eq');
-        const date = new Date(0);
-        date.setFullYear(year);
-
-        if (type === 'eq' || type === 'ne') {
-            const end_date = new Date(0);
-            end_date.setFullYear(year);
-            end_date.setMonth(11);
-            end_date.setDate(31);
-
-            return {
-                type: 'range',
-                prop: 'released_at',
-                start: date,
-                start_inc: true,
-                end: end_date,
-                end_inc: true,
-            };
+        if (cond === null) {
+            this.pos = start_pos;
         }
 
-        if (type === 'gt' || type === 'le') {
-            date.setMonth(11);
-            date.setDate(31);
-        }
-
-        return {
-            type,
-            prop: 'released_at',
-            value: date,
-        };
+        return cond;
     }
 
     private parse_string(): { value: string, quoted: boolean } {
@@ -2737,6 +2704,91 @@ class Query_Parser {
     private add_prop<T extends Condition & { prop: Prop }>(cond: T): T {
         this.props.add(cond.prop);
         return cond;
+    }
+
+    private create_released_at_cond(
+        operator: Operator,
+        year: number,
+        month: number | null,
+        day: number | null,
+    ): Condition | null {
+        if (year <= 99) {
+            // Date.UTC would map this to 1900-1999.
+            return null;
+        }
+
+        if (month !== null && (month < 1 || month > 12)) {
+            return null;
+        }
+
+        const type = this.operator_to_type(operator, 'eq');
+
+        if (day !== null) {
+            // Complete date, use as-is.
+            assert(month !== null);
+
+            const date = new Date(Date.UTC(year, month - 1, day));
+
+            if (date.getUTCFullYear() !== year
+                || date.getUTCMonth() !== month - 1
+                || date.getUTCDate() !== day
+            ) {
+                return null;
+            }
+
+            return this.add_prop({
+                type,
+                prop: 'released_at',
+                value: date,
+            });
+        }
+
+        // Incomplete date, interpret depending on the type.
+        if (type === 'eq' || type === 'ne') {
+            const start = this.create_date_from_partial(year, month, true);
+            const end = this.create_date_from_partial(year, month, false);
+            const condition = this.add_prop({
+                type: 'range',
+                prop: 'released_at',
+                start,
+                start_inc: true,
+                end,
+                end_inc: true,
+            });
+
+            if (type === 'ne') {
+                return { type: 'not', condition };
+            }
+
+            return condition;
+        }
+
+        const value = this.create_date_from_partial(year, month, type !== 'gt' && type !== 'le');
+        return this.add_prop({
+            type,
+            prop: 'released_at',
+            value,
+        });
+    }
+
+    /**
+     * @param start Whether the created date should be at the start or the end of the range
+     *              specified by year and month.
+     */
+    private create_date_from_partial(
+        year: number,
+        month: number | null,
+        start: boolean,
+    ): Date {
+        month = month ?? (start ? 1 : 12);
+        const date = new Date(Date.UTC(year, month - 1, 1));
+
+        if (!start) {
+            date.setUTCMonth(date.getUTCMonth() + 1);
+            date.setUTCDate(0);
+        }
+
+        return date;
     }
 }
 
@@ -4642,6 +4694,12 @@ async function run_test_suite() {
         'date:',
         'date:1993-08-05 rec',
         ['Ancestral Recall', 'Resurrection'],
+    );
+
+    test_query(
+        'date>= and date<=',
+        'date>=2003-04 date<=2003-08 grave',
+        ['Call to the Grave', 'Gravedigger', 'Grave Pact', 'Reaping the Graves'],
     );
 
     test_query(
