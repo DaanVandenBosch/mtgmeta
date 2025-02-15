@@ -1108,7 +1108,7 @@ class Bitset_32 implements Uint_Set {
 
     fill() {
         const cap = this.cap;
-        this.values = (1 << cap) - 1;
+        this.values = cap === 32 ? 0xFFFFFFFF : (1 << cap) - 1;
         this.size = cap;
     }
 
@@ -3610,7 +3610,7 @@ class Query_Evaluator {
                     continue;
                 }
 
-                let bits_end = slot === 0 ? 0 : Math.min(bits_left, 32);
+                const bits_end = Math.min(bits_left, 32);
 
                 for (let j = 0; j < bits_end; j++) {
                     if ((slot & (1 << j)) === 0) {
