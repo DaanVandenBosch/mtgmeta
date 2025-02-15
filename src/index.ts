@@ -180,7 +180,7 @@ async function init() {
         const el = document.activeElement;
 
         if (el === null || !['BUTTON', 'INPUT', 'SELECT'].includes(el.tagName)) {
-            switch (keybind(e)) {
+            switch (key_combo(e)) {
                 case 'f':
                 case '/':
                     e.preventDefault();
@@ -211,7 +211,7 @@ async function init() {
     };
 
     ui.query_el.onkeydown = e => {
-        switch (keybind(e)) {
+        switch (key_combo(e)) {
             case 'Enter':
                 set_inputs({ query_string: ui.query_el.value });
                 break;
@@ -227,6 +227,16 @@ async function init() {
                 e.preventDefault();
                 e.stopPropagation();
                 break;
+            }
+        }
+    };
+
+    ui.query_el.onkeyup = () => {
+        const query_string = ui.query_el.value;
+
+        if (query_string !== inputs.query_string) {
+            for (const prop of parse_query(query_string).props) {
+                data.load(prop);
             }
         }
     };
@@ -290,7 +300,7 @@ async function init() {
     }
 }
 
-function keybind(e: KeyboardEvent): string {
+function key_combo(e: KeyboardEvent): string {
     let bind = [];
 
     if (e.ctrlKey) {
