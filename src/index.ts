@@ -819,7 +819,6 @@ const memory = new ArrayBuffer(256 * 1024);
 interface Uint_Set {
     size: number;
 
-    uninitialized_copy(): Uint_Set;
     copy(): Uint_Set;
     copy_into(other: this): void;
     has(value: number): boolean;
@@ -866,12 +865,8 @@ class Bitset implements Uint_Set {
         this.size = 0;
     }
 
-    uninitialized_copy(): Bitset {
-        return new Bitset(this.cap, this.m_end - this.m_off);
-    }
-
     copy(): Bitset {
-        const new_set = this.uninitialized_copy();
+        const new_set = new Bitset(this.cap, this.m_end - this.m_off);
         this.copy_into(new_set);
         return new_set;
     }
@@ -1054,10 +1049,6 @@ class Bitset_32 implements Uint_Set {
         this.size = size;
     }
 
-    uninitialized_copy(): Bitset_32 {
-        return new Bitset_32(0, this.cap, 0);
-    }
-
     copy(): Bitset_32 {
         return new Bitset_32(this.values, this.cap, this.size);
     }
@@ -1202,10 +1193,6 @@ class Array_Set implements Uint_Set {
         const new_set = new Array_Set();
         this.copy_into(new_set);
         return new_set;
-    }
-
-    uninitialized_copy(): Array_Set {
-        return new Array_Set();
     }
 
     copy_into(other: Array_Set) {
