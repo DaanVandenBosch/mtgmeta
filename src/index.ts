@@ -153,7 +153,7 @@ async function init() {
     POOLS[POOL_PREMODERN_PEASANT_COMMANDER] =
         parse_query('date<2003-07-29 rarity:rare type:creature');
     POOLS[POOL_MODERN_PAUPER] =
-        parse_query('date>=2003-07-29 date<2014-07-18 rarity:common');
+        parse_query('date>=2003-07-29 date<2014-07-18 rarity:common -"Rhystic Study"');
     POOLS[POOL_MODERN_PAUPER_COMMANDER] =
         parse_query('date>=2003-07-29 date<2014-07-18 rarity:uncommon type:creature');
 
