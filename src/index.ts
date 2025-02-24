@@ -45,6 +45,7 @@ const PROPS: Prop[] = [
     'type_search',
 ];
 const PER_VERSION_PROPS: Prop[] = ['rarity', 'released_at', 'reprint', 'set'];
+const PROPS_REQUIRED_FOR_DISPLAY: Prop[] = ['sfurl', 'img', 'type'];
 
 const MANA_WHITE = 'W';
 const MANA_BLUE = 'U';
@@ -231,12 +232,29 @@ async function init() {
         }
     };
 
-    ui.query_el.onkeyup = () => {
+    ui.query_el.onkeyup = async () => {
         const query_string = ui.query_el.value;
 
         if (query_string !== inputs.query_string) {
-            for (const prop of parse_query(query_string).props) {
-                data.load(prop);
+            const MAX_ATTEMPTS = 2;
+
+            for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                try {
+                    const loads = [
+                        ...parse_query(query_string).props,
+                        // Ensure all display props are reloaded when data is out of date:
+                        ...PROPS_REQUIRED_FOR_DISPLAY,
+                    ].map(prop => data.load(prop));
+
+                    await Promise.all(loads);
+                } catch (e) {
+                    if (attempt < MAX_ATTEMPTS) {
+                        Console_Logger.error('Error while preloading properties, retrying.', e);
+                        continue;
+                    } else {
+                        throw e;
+                    }
+                }
             }
         }
     };
@@ -721,9 +739,9 @@ async function filter(logger: Logger) {
     logger.log('user query', user_query);
     logger.log('combined query', combined_query);
 
-    const MAX_TRIES = 2;
+    const MAX_ATTEMPTS = 2;
 
-    for (let i = 1; i <= MAX_TRIES; i++) {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         try {
             result = await find_cards_matching_query(
                 query,
@@ -734,7 +752,7 @@ async function filter(logger: Logger) {
             );
             break;
         } catch (e) {
-            if (i < MAX_TRIES) {
+            if (attempt < MAX_ATTEMPTS) {
                 logger.error('Error while finding matching cards, retrying.', e);
                 continue;
             } else {
@@ -1550,11 +1568,14 @@ class Data {
     sorters: Map<Sort_Order, Promise<Sorter>> = new Map;
     creation_time: Date | null = null;
     aborter = new AbortController;
-    fetch_reload = false;
+    fetch_with_cache_reload = false;
+    last_clear: number = performance.now();
 
     data_is_out_of_date() {
-        // We only try a second fetch with cache reload once.
-        if (!this.fetch_reload) {
+        const now = performance.now();
+
+        // We only try refetching with cache reload once every minute.
+        if (now - this.last_clear >= 60_000) {
             // Abort all in-flight requests.
             this.aborter.abort();
             this.aborter = new AbortController;
@@ -1564,12 +1585,16 @@ class Data {
             this.props.clear();
             this.prop_promises.clear();
             this.sorters.clear();
+            this.creation_time = null;
 
             // Fetch with Cache-Control set to reload from now on.
-            this.fetch_reload = true;
+            this.fetch_with_cache_reload = true;
+            this.last_clear = now;
 
             // Throw an error to trigger a retry.
             throw new Out_Of_Date_Error;
+        } else if (confirm("Some data is out of date, do you want to refresh the page?")) {
+            window.location.reload();
         }
     }
 
@@ -1609,7 +1634,7 @@ class Data {
         if (promise === undefined) {
             const init: FetchRequestInit = {
                 signal: this.aborter.signal,
-                cache: this.fetch_reload ? 'reload' : undefined,
+                cache: this.fetch_with_cache_reload ? 'reload' : undefined,
             };
 
             promise = fetch(`data/card_${prop}.json`, init).then(async response => {
@@ -1811,7 +1836,7 @@ class Data {
             } else {
                 const init: FetchRequestInit = {
                     signal: this.aborter.signal,
-                    cache: this.fetch_reload ? 'reload' : undefined,
+                    cache: this.fetch_with_cache_reload ? 'reload' : undefined,
                 };
 
                 promise = fetch(`data/card_${order}.sort`, init).then(async response => {
@@ -3356,7 +3381,7 @@ async function find_cards_matching_query(
 
     const sorter_promise = data.get_sorter(sort_order);
 
-    for (const prop of Array<Prop>('sfurl', 'img', 'type')) {
+    for (const prop of PROPS_REQUIRED_FOR_DISPLAY) {
         required_for_display_promises.push(data.load(prop));
     }
 
