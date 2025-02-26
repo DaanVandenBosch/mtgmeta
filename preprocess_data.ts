@@ -48,6 +48,7 @@ type Sf_Card = {
 
 type Card = {
     /** Card properties. */
+    layout: string,
     cmc: number,
     formats: string[],
     identity: string,
@@ -63,12 +64,12 @@ type Card = {
     name: string[],
     full_oracle: string[],
     type: (string | null)[],
+    landscape: boolean,
 }
 
 type Card_Version = {
     sf_id: string,
     digital: boolean,
-    layout: string,
     rarity: string,
     released_at: Date,
     set: string,
@@ -114,8 +115,8 @@ class Preprocessor {
                 const id = src_card.oracle_id;
 
                 if (id === undefined) {
-                    // Ignore reversible cards, we already added them during the pass over the oracle
-                    // cards.
+                    // Ignore reversible cards, we already added them during the pass over the
+                    // oracle cards.
                     continue;
                 }
 
@@ -138,11 +139,14 @@ class Preprocessor {
                 throw Error(`Card "${full_card_name(dst_card)}" has no versions.`);
             }
 
+            if (EXCLUDED_LAYOUTS.includes(dst_card.layout)) {
+                return false;
+            }
+
             dst_card.versions = dst_card.versions.filter(version =>
                 !version.digital
                 && !version.promo_types.some(pt => EXCLUDED_PROMO_TYPES.includes(pt))
                 && !EXCLUDED_SET_TYPES.includes(version.set_type)
-                && !EXCLUDED_LAYOUTS.includes(version.layout)
             );
 
             return dst_card.versions.length > 0;
@@ -187,7 +191,7 @@ class Preprocessor {
             }
         }
 
-        for (const prop of [
+        const card_props: (keyof Card)[] = [
             'colors',
             'cost',
             'cmc',
@@ -198,7 +202,10 @@ class Preprocessor {
             'full_oracle',
             'sfurl',
             'type',
-        ] as (keyof Card)[]) {
+            'landscape',
+        ];
+
+        for (const prop of card_props) {
             await Bun.write(
                 `data/card_${prop}.json`,
                 JSON.stringify(
@@ -211,11 +218,13 @@ class Preprocessor {
             );
         }
 
-        for (const prop of [
+        const version_props: (keyof Card['versions'][0])[] = [
             'rarity',
             'released_at',
             'set',
-        ] as (keyof Card['versions'][0])[]) {
+        ];
+
+        for (const prop of version_props) {
             await Bun.write(
                 `data/card_${prop}.json`,
                 JSON.stringify(
@@ -252,6 +261,7 @@ class Preprocessor {
 
         const dst_card: Card = {
             // Card properties.
+            layout: src_card.layout,
             cmc: src_card.cmc ?? src_card.card_faces![0].cmc!,
             formats,
             identity: src_card.color_identity.join(''),
@@ -267,6 +277,7 @@ class Preprocessor {
             name: [],
             full_oracle: [],
             type: [],
+            landscape: false,
         };
 
         // Properties that will be on the face if there are faces, and on the card if there are
@@ -301,6 +312,16 @@ class Preprocessor {
             // }
         }
 
+        if (dst_card.type[0]?.startsWith('Battle ') || dst_card.type[0]?.startsWith('Plane ')) {
+            dst_card.landscape = true;
+        } else if (
+            dst_card.layout === 'split'
+            && !dst_card.full_oracle[1]?.startsWith('Aftermath ')
+            && dst_card.name.length !== 5 // Who // What // When // Where // Why
+        ) {
+            dst_card.landscape = true;
+        }
+
         this.add_version(src_card, dst_card);
 
         this.cards.push(dst_card);
@@ -320,7 +341,6 @@ class Preprocessor {
         dst_card.versions.push({
             sf_id: src_card.id,
             digital: src_card.digital,
-            layout: src_card.layout,
             rarity: src_card.rarity,
             released_at: new Date(src_card.released_at + 'T00:00:00Z'),
             set: src_card.set,

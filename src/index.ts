@@ -7,6 +7,7 @@ type Prop =
     'img' |
     'cost' |
     'cmc' |
+    'landscape' |
     'name' |
     'name_search' |
     'name_inexact' |
@@ -29,6 +30,7 @@ const PROPS: Prop[] = [
     'img',
     'cost',
     'cmc',
+    'landscape',
     'name',
     'name_search',
     'name_inexact',
@@ -45,7 +47,7 @@ const PROPS: Prop[] = [
     'type_search',
 ];
 const PER_VERSION_PROPS: Prop[] = ['rarity', 'released_at', 'reprint', 'set'];
-const PROPS_REQUIRED_FOR_DISPLAY: Prop[] = ['sfurl', 'img', 'type'];
+const PROPS_REQUIRED_FOR_DISPLAY: Prop[] = ['sfurl', 'img', 'landscape'];
 
 const MANA_WHITE = 'W';
 const MANA_BLUE = 'U';
@@ -782,9 +784,7 @@ async function filter(logger: Logger) {
         const div: HTMLDivElement = el('div');
         div.className = 'card_wrapper';
 
-        const types = data.get<string[]>(card_idx, 'type');
-
-        if (types && (types[0].startsWith('Battle ') || types[0].startsWith('Plane '))) {
+        if (data.get<boolean>(card_idx, 'landscape') === true) {
             div.classList.add('landscape');
         }
 
@@ -3390,10 +3390,10 @@ async function find_cards_matching_query(
         await promise;
     }
 
-    // Await the smallest display property if we have no necessary properties to wait for, just to
+    // Await at least one display property if we have no required properties to wait for, just to
     // get the amount of cards.
     if (data.length === null) {
-        await required_for_display_promises[0];
+        await Promise.race(required_for_display_promises);
     }
 
     logger.time_end('find_cards_matching_query_load');
