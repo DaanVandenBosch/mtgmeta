@@ -3264,6 +3264,7 @@ function mana_cost_eq(a: Mana_Cost, b: Mana_Cost, logger: Logger): boolean {
     return true;
 }
 
+/** Returns true if a is a super set of b. */
 function mana_cost_is_super_set(
     a: Mana_Cost,
     b: Mana_Cost,
@@ -3372,18 +3373,9 @@ async function find_cards_matching_query(
     logger.time('find_cards_matching_query_load');
 
     // Fire off data loads.
-    const required_for_query_promises = [];
-    const required_for_display_promises = [];
-
-    for (const prop of query.props) {
-        required_for_query_promises.push(data.load(prop));
-    }
-
+    const required_for_query_promises = query.props.map(prop => data.load(prop));
+    const required_for_display_promises = PROPS_REQUIRED_FOR_DISPLAY.map(prop => data.load(prop));
     const sorter_promise = data.get_sorter(sort_order);
-
-    for (const prop of PROPS_REQUIRED_FOR_DISPLAY) {
-        required_for_display_promises.push(data.load(prop));
-    }
 
     // Await data loads necessary for query.
     for (const promise of required_for_query_promises) {
