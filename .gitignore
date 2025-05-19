@@ -1,4 +1,6 @@
-node_modules
+.gradle
+.idea
+.kotlin
+build
 data
 preprocessing
-out

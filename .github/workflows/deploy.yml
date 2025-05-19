@@ -31,32 +31,4 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cache source data
-        uses: actions/cache@v4
-        with:
-          path: preprocessing
-          key: preprocessing-${{ github.run_id }}
-          enableCrossOsArchive: true
-          restore-keys: |
-            preprocessing-
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Bun install
-        run: bun install --production --frozen-lockfile
-
-      - name: Build
-        run: bun build-prod
-
-      - name: Set up Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: 'out'
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+# TODO: Make it work with Kotlin/Gradle.

@@ -1,23 +1,15 @@
 # MTGMETA
 
-## Getting Started
-
-Install [Bun](https://bun.sh).
+## Start Client
 
 ```sh
-bun install
-```
-
-## Start Server
-
-```sh
-bun dev
+./gradlew :jsBrowserDevelopmentRun
 ```
 
 ## Preprocess New Card Dumps
 
 ```sh
-bun preprocess
+./gradlew :generate:run
 ```
 
 ## TODO
