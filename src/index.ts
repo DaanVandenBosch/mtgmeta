@@ -2483,7 +2483,9 @@ class Query_Parser {
         });
     }
 
-    private parse_mana_value_cond(operator: Operator): Comparison_Condition | Predicate_Condition | null {
+    private parse_mana_value_cond(
+        operator: Operator,
+    ): Comparison_Condition | Predicate_Condition | null {
         const value_string = this.parse_word().toLocaleLowerCase('en');
 
         if (operator === ':' || operator === '=') {
@@ -2655,7 +2657,10 @@ class Query_Parser {
                 if (end !== -1) {
                     const start_pos = this.pos + 1;
                     this.pos = end + 1;
-                    return { value: this.query_string.slice(start_pos, this.pos - 1), quoted: true };
+                    return {
+                        value: this.query_string.slice(start_pos, this.pos - 1),
+                        quoted: true,
+                    };
                 }
 
                 break;
