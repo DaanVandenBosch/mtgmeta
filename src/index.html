@@ -3,15 +3,14 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <script src="index.js" async></script>
+    <script src="index.js" type="module" async></script>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" href="data:,">
     <link rel="preload" href="data/card_sfurl.json" as="fetch" crossorigin>
     <link rel="preload" href="data/card_img.json" as="fetch" crossorigin>
     <link rel="preload" href="data/card_type.json" as="fetch" crossorigin>
     <link rel="preconnect" href="https://cards.scryfall.io" crossorigin>
-    <link rel="search" type="application/opensearchdescription+xml" title="MTG Search"
-        href="open_search.xml">
+    <link rel="search" type="application/opensearchdescription+xml" title="MTG Search" href="open_search.xml">
 </head>
 
 <body>
@@ -44,8 +43,7 @@
                 </select>
                 <div class="sort_dir">
                     <label>
-                        <input type="radio" name="sort_dir" value="asc" autocomplete="off"
-                            checked>Asc
+                        <input type="radio" name="sort_dir" value="asc" autocomplete="off" checked>Asc
                     </label>
                     <label>
                         <input type="radio" name="sort_dir" value="desc" autocomplete="off">Desc
@@ -58,8 +56,7 @@
             <div class="result_buttons">
                 <button class="result_first" disabled>
                     <svg width="6" height="10">
-                        <line x1="0.5" y1="0.5" x2="0.5" y2="9.5" stroke="currentColor"
-                            stroke-width="1" />
+                        <line x1="0.5" y1="0.5" x2="0.5" y2="9.5" stroke="currentColor" stroke-width="1" />
                         <path d="M 1 5 L 6 10 L 6 0 z" fill="currentColor"></path>
                     </svg>
                 </button>
@@ -78,15 +75,11 @@
                 <button class="result_last" disabled>
                     <svg width="6" height="10">
                         <path d="M 0 10 L 5 5 L 0 0 z" fill="currentColor"></path>
-                        <line x1="5.5" y1="0.5" x2="5.5" y2="9.5" stroke="currentColor"
-                            stroke-width="1" />
+                        <line x1="5.5" y1="0.5" x2="5.5" y2="9.5" stroke="currentColor" stroke-width="1" />
                     </svg>
                 </button>
             </div>
             <div class="result_dummy"></div>
         </div>
     </header>
-    <div class="result" tabindex="-1">
-        <div class="cards" tabindex="-1"></div>
-    </div>
 </body>

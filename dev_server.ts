@@ -23,7 +23,7 @@ const server = Bun.serve({
         if (path === '/') {
             data = Bun.file('src/index.html')
             headers['Content-Type'] = 'text/html';
-        } else if (path.endsWith('.js')) {
+        } else if (path.endsWith('.js') || path.endsWith('.ts')) {
             const file_content = await Bun.file('src' + path.slice(0, -2) + 'ts').text();
             data = await transpiler.transform(file_content);
             headers['Content-Type'] = 'text/javascript; charset=utf-8';
