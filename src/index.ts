@@ -1632,7 +1632,7 @@ class Data {
         let promise = this.prop_promises.get(prop);
 
         if (promise === undefined) {
-            const init: FetchRequestInit = {
+            const init: RequestInit = {
                 signal: this.aborter.signal,
                 cache: this.fetch_with_cache_reload ? 'reload' : undefined,
             };
@@ -1834,7 +1834,7 @@ class Data {
             if (order === 'name') {
                 promise = Promise.resolve(new Default_Sorter(order));
             } else {
-                const init: FetchRequestInit = {
+                const init: RequestInit = {
                     signal: this.aborter.signal,
                     cache: this.fetch_with_cache_reload ? 'reload' : undefined,
                 };

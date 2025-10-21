@@ -8,8 +8,8 @@ if (!(await readdir('data').then(() => true, () => false))) {
     await import('./preprocess_data');
 }
 
-Bun.serve({
-    hostname: '0.0.0.0',
+const server = Bun.serve({
+    hostname: 'localhost',
     port: 8000,
 
     async fetch(req) {
@@ -41,7 +41,7 @@ Bun.serve({
             data = Bun.file('src' + path);
         }
 
-        const data_buffer: Uint8Array =
+        const data_buffer: Uint8Array<ArrayBuffer> =
             typeof data === 'string' ? Buffer.from(data) : new Uint8Array(await data.arrayBuffer());
         const compressed_data = Bun.gzipSync(data_buffer);
 
@@ -50,3 +50,5 @@ Bun.serve({
         return new Response(compressed_data, { headers });
     },
 });
+
+console.log(`Running at: http://${server.hostname}:${server.port}/`);
