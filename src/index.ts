@@ -4397,7 +4397,7 @@ async function run_test_suite() {
     test_query(
         'mana=',
         'm=rgwu',
-        ['Aragorn, the Uniter', 'Elusen, the Giving', 'Ink-Treader Nephilim', 'Kynaios and Tiro of Meletis', 'Omnath, Locus of Creation'],
+        ['Aragorn, the Uniter', 'Avatar Aang // Aang, Master of Elements', 'Elusen, the Giving', 'Ink-Treader Nephilim', 'Kynaios and Tiro of Meletis', 'Omnath, Locus of Creation'],
     );
 
     test_query(
@@ -4463,8 +4463,8 @@ async function run_test_suite() {
 
     test_query(
         'mana monocolored hybrid',
-        'm>={2/b}',
-        ['Beseech the Queen', 'Reaper King'],
+        'm>={2/r}{2/w}{2/b}',
+        ['Defibrillating Current', 'Reaper King', 'Reigning Victor'],
     );
 
     test_query(
@@ -4597,7 +4597,7 @@ async function run_test_suite() {
     test_query(
         'identity:',
         'id:gr scrapper',
-        ['Elvish Scrapper', 'Scuzzback Scrapper', 'Khenra Scrapper', 'Gruul Scrapper', 'Scrapper Champion', 'Tuktuk Scrapper', 'Narstad Scrapper'],
+        ['Elvish Scrapper', 'Gruul Scrapper', 'Khenra Scrapper', 'Narstad Scrapper', 'Scrapper Champion', 'Scuzzback Scrapper', 'Slagdrill Scrapper', 'Tuktuk Scrapper'],
     );
 
     test_query(
