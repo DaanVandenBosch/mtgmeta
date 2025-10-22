@@ -19,7 +19,7 @@ import {
     simplify_query,
 } from './query.ts';
 import {
-    Data,
+    Cards,
     type Sort_Order,
     SORT_ORDERS,
     remove_parenthesized_text,
@@ -43,8 +43,7 @@ const POOL_MODERN_PAUPER_COMMANDER = 'mpc';
 
 const POOLS: { [K: string]: Query } = {};
 
-/** Static data that gets loaded once and then never changes. */
-let data: Data = undefined as any as Data;
+let cards: Cards = undefined as any as Cards;
 
 /** User input. */
 const DEFAULT_QUERY_STRING = '';
@@ -110,7 +109,7 @@ async function init() {
     POOLS[POOL_MODERN_PAUPER_COMMANDER] =
         parse_query('date>=2003-07-29 date<2014-07-18 rarity:uncommon type:creature');
 
-    data = new Data;
+    cards = new Cards;
 
     ui.query_el = get_el('.query');
     ui.show_extra_el = get_el('.filter_show_extra');
@@ -124,7 +123,7 @@ async function init() {
     ui.result_next_el = get_el('.result_next');
     ui.result_first_el = get_el('.result_first');
     ui.result_last_el = get_el('.result_last');
-    ui.result_set_view = new Result_Set_View(data, result, result_nav);
+    ui.result_set_view = new Result_Set_View(cards, result, result_nav);
     document.body.append(ui.result_set_view.el);
     Object.freeze(ui);
 
@@ -197,7 +196,7 @@ async function init() {
                         ...parse_query(query_string).props,
                         // Ensure all display props are reloaded when data is out of date:
                         ...PROPS_REQUIRED_FOR_DISPLAY,
-                    ].map(prop => data.load(prop));
+                    ].map(prop => cards.load(prop));
 
                     await Promise.all(loads);
                 } catch (e) {
@@ -567,7 +566,7 @@ async function filter(logger: Logger) {
 
     // Try to avoid showing "Loading..." when the user opens the app, as it makes you think you
     // can't filter cards yet.
-    if (data.length === null
+    if (cards.length === null
         && inputs.query_string !== ''
         && ui.result_summary_el.innerHTML === ''
     ) {
@@ -598,7 +597,7 @@ async function filter(logger: Logger) {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         try {
             const res = await find_cards_matching_query(
-                data,
+                cards,
                 query,
                 inputs.sort_order,
                 inputs.sort_asc,
@@ -637,7 +636,7 @@ async function filter(logger: Logger) {
         ? 'No matches.'
         : `Showing ${start_pos}-${end_pos} of ${result.length} matches.`;
 
-    const at_first_page = data.length === null || start_pos === 1;
+    const at_first_page = cards.length === null || start_pos === 1;
     const at_last_page = start_pos >= result.length - MAX_CARDS + 1
     ui.result_prev_el.disabled = at_first_page;
     ui.result_next_el.disabled = at_last_page;
@@ -689,7 +688,7 @@ async function run_test_suite() {
         test(`${name} [${query_string}]`, async logger => {
             const query = simplify_query(parse_query(query_string));
             const result = await find_cards_matching_query(
-                data,
+                cards,
                 query,
                 'name',
                 true,
@@ -697,7 +696,7 @@ async function run_test_suite() {
                 () => Nop_Logger,
             );
 
-            const actual = new Set(result.map(idx => data.name(idx)));
+            const actual = new Set(result.map(idx => cards.name(idx)));
 
             if (expected.size !== result.length || !deep_eq(actual, expected)) {
                 const missing_set = expected.difference(actual);
@@ -723,12 +722,12 @@ async function run_test_suite() {
                 }
 
                 await find_cards_matching_query(
-                    data,
+                    cards,
                     query,
                     'name',
                     true,
                     logger,
-                    idx => (log_set.has(data.name(idx)) ? logger : Nop_Logger),
+                    idx => (log_set.has(cards.name(idx)) ? logger : Nop_Logger),
                 );
 
                 const max_warn = unexpected_set.size > 5 ? ' (showing max. 5)' : '';
@@ -1559,7 +1558,7 @@ async function run_test_suite() {
     );
 
     // Load all data in advance, so timings are more meaningful.
-    const loads = PROPS.map(p => data.load(p));
+    const loads = PROPS.map(p => cards.load(p));
 
     for (const load of loads) {
         await load;
@@ -1635,7 +1634,7 @@ async function run_benchmarks() {
         benchmark(
             name,
             () => new Query_Evaluator(
-                data,
+                cards,
                 simplify_query(
                     combine_queries_with_conjunction(
                         parse_query('year>=2000'),
@@ -1646,7 +1645,7 @@ async function run_benchmarks() {
                 small_set_optimization,
             ),
             evaluator => {
-                const len = data.length!;
+                const len = cards.length!;
                 let result = 0;
 
                 for (let card_idx = 0; card_idx < len; card_idx++) {
@@ -1667,7 +1666,7 @@ async function run_benchmarks() {
     Console_Logger.info('Running benchmarks.');
 
     // Load all data in advance.
-    const loads = PROPS.map(p => data.load(p));
+    const loads = PROPS.map(p => cards.load(p));
 
     for (const load of loads) {
         await load;

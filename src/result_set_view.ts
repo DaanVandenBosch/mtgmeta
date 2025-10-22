@@ -1,5 +1,5 @@
 import { create_el } from './core.ts';
-import { Data } from './data.ts';
+import { Cards } from './data.ts';
 
 export type Result_Nav = {
     start_idx: number,
@@ -7,14 +7,14 @@ export type Result_Nav = {
 };
 
 export class Result_Set_View {
-    private readonly data: Data;
+    private readonly cards: Cards;
     private readonly result: number[];
     private readonly nav: Result_Nav;
     readonly el: HTMLElement = create_el('div');
     readonly cards_el: HTMLElement = create_el('div');
 
-    constructor(data: Data, result: number[], nav: Result_Nav) {
-        this.data = data;
+    constructor(cards: Cards, result: number[], nav: Result_Nav) {
+        this.cards = cards;
         this.result = result;
         this.nav = nav;
 
@@ -35,20 +35,20 @@ export class Result_Set_View {
             const div = create_el('div');
             div.className = 'card_wrapper';
 
-            if (this.data.get<boolean>(card_idx, 'landscape') === true) {
+            if (this.cards.get<boolean>(card_idx, 'landscape') === true) {
                 div.classList.add('landscape');
             }
 
             const a: HTMLAnchorElement = create_el('a');
             a.className = 'card';
-            a.href = this.data.scryfall_url(card_idx) ?? '';
+            a.href = this.cards.scryfall_url(card_idx) ?? '';
             a.target = '_blank';
             a.rel = 'noreferrer';
             div.append(a);
 
             const img: HTMLImageElement = create_el('img');
             img.loading = 'lazy';
-            img.src = this.data.image_url(card_idx) ?? '';
+            img.src = this.cards.image_url(card_idx) ?? '';
             a.append(img);
 
             frag.append(div);

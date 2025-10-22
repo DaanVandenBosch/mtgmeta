@@ -20,11 +20,11 @@ export interface Sorter {
 
 /** Sorts by card order, which is name by default. */
 class Default_Sorter implements Sorter {
-    private readonly data: Data;
+    private readonly data: Cards;
     readonly order: Sort_Order;
     readonly type: Sort_Type = Sort_Type.BY_CARD;
 
-    constructor(data: Data, order: Sort_Order) {
+    constructor(data: Cards, order: Sort_Order) {
         this.data = data;
         this.order = order;
     }
@@ -49,13 +49,13 @@ class Index_Sorter implements Sorter {
     static readonly GROUP_HEADER_OFFSET = 32;
     static readonly GROUP_TABLE_OFFSET = Index_Sorter.GROUP_HEADER_OFFSET + 4;
 
-    private readonly data: Data;
+    private readonly data: Cards;
     private view: DataView
     readonly order: Sort_Order;
     readonly type: Sort_Type;
     readonly creation_time: Date;
 
-    constructor(data: Data, buf: ArrayBuffer) {
+    constructor(data: Cards, buf: ArrayBuffer) {
         this.data = data;
         this.view = new DataView(buf);
 
@@ -154,7 +154,7 @@ class Out_Of_Date_Error extends Error {
     }
 }
 
-export class Data {
+export class Cards {
     length: number | null = null;
     props: Map<Prop, any> = new Map;
     prop_promises: Map<Prop, Promise<void>> = new Map;

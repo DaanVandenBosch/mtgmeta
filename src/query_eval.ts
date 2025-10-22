@@ -18,7 +18,7 @@ import {
     RARITY_SPECIAL,
     RARITY_BONUS,
 } from './query.ts';
-import { Data, type Sort_Order } from './data.ts';
+import { Cards, type Sort_Order } from './data.ts';
 
 export const PROPS_REQUIRED_FOR_DISPLAY: Prop[] = ['sfurl', 'img', 'landscape'];
 
@@ -32,7 +32,7 @@ const RARITY_RANK = Object.freeze({
 });
 
 export async function find_cards_matching_query(
-    data: Data,
+    cards: Cards,
     query: Query,
     sort_order: Sort_Order,
     sort_asc: boolean,
@@ -44,9 +44,9 @@ export async function find_cards_matching_query(
     logger.time('find_cards_matching_query_load');
 
     // Fire off data loads.
-    const required_for_query_promises = query.props.map(prop => data.load(prop));
-    const required_for_display_promises = PROPS_REQUIRED_FOR_DISPLAY.map(prop => data.load(prop));
-    const sorter_promise = data.get_sorter(sort_order);
+    const required_for_query_promises = query.props.map(prop => cards.load(prop));
+    const required_for_display_promises = PROPS_REQUIRED_FOR_DISPLAY.map(prop => cards.load(prop));
+    const sorter_promise = cards.get_sorter(sort_order);
 
     // Await data loads necessary for query.
     for (const promise of required_for_query_promises) {
@@ -55,16 +55,16 @@ export async function find_cards_matching_query(
 
     // Await at least one display property if we have no required properties to wait for, just to
     // get the amount of cards.
-    if (data.length === null) {
+    if (cards.length === null) {
         await Promise.race(required_for_display_promises);
     }
 
     logger.time_end('find_cards_matching_query_load');
     logger.time('find_cards_matching_query_evaluate');
 
-    const len = data.length ?? 0;
+    const len = cards.length ?? 0;
     const add_version_idx = is_by_version_order(sort_order);
-    const evaluator = new Query_Evaluator(data, query, true, true);
+    const evaluator = new Query_Evaluator(cards, query, true, true);
 
     const matching_cards = new Map<number, number>();
 
@@ -78,7 +78,7 @@ export async function find_cards_matching_query(
             }
         } catch (e) {
             throw Error(
-                `Couldn't evaluate query with "${data.name(card_idx)}".`,
+                `Couldn't evaluate query with "${cards.name(card_idx)}".`,
                 { cause: e },
             );
         }
@@ -120,15 +120,15 @@ function is_by_version_order(order: Sort_Order): boolean {
 }
 
 export class Query_Evaluator {
-    private readonly data: Data;
+    private readonly cards: Cards;
     private readonly query: Query;
     private readonly bitset: boolean;
     private readonly small_set_optimization: boolean;
     private card_idx: number = 0;
     private logger: Logger = Nop_Logger;
 
-    constructor(data: Data, query: Query, bitset: boolean, small_set_optimization: boolean) {
-        this.data = data;
+    constructor(cards: Cards, query: Query, bitset: boolean, small_set_optimization: boolean) {
+        this.cards = cards;
         this.query = query;
         this.bitset = bitset;
         this.small_set_optimization = small_set_optimization;
@@ -138,10 +138,10 @@ export class Query_Evaluator {
         this.card_idx = card_idx;
         this.logger = logger;
 
-        const version_count = this.data.version_count(card_idx) ?? 1;
+        const version_count = this.cards.version_count(card_idx) ?? 1;
 
         if (logger.should_log) {
-            const name = this.data.name(card_idx);
+            const name = this.cards.name(card_idx);
             logger.log('evaluating query with', name, card_idx, 'versions', version_count);
         }
 
@@ -341,7 +341,7 @@ export class Query_Evaluator {
         condition: Comparison_Condition | Substring_Condition | Predicate_Condition | Range_Condition,
         version_idx: number,
     ): boolean {
-        let values: any = this.data.get_for_version(this.card_idx, version_idx, condition.prop);
+        let values: any = this.cards.get_for_version(this.card_idx, version_idx, condition.prop);
 
         if (!Array.isArray(values)) {
             values = [values];
