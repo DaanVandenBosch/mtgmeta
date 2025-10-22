@@ -3,9 +3,11 @@ import { readdir } from "node:fs/promises";
 
 const transpiler = new Bun.Transpiler({ loader: 'ts' });
 
-if (!(await readdir('data').then(() => true, () => false))) {
+try {
+    await readdir('data');
+} catch {
     console.log('No data directory, preprocessing data first.');
-    await import('./preprocess_data');
+    await import('./preprocess_data.ts');
 }
 
 const server = Bun.serve({
