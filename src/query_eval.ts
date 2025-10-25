@@ -1,5 +1,5 @@
-import { unreachable, type Logger, Nop_Logger } from './core.ts';
-import { type Uint_Set, Bitset, Bitset_32, Array_Set } from './uint_set.ts';
+import { unreachable, type Logger, Nop_Logger, assert } from './core';
+import { type Uint_Set, Bitset, Bitset_32, Array_Set } from './uint_set';
 import {
     type Query,
     type Prop,
@@ -17,8 +17,8 @@ import {
     RARITY_MYTHIC,
     RARITY_SPECIAL,
     RARITY_BONUS,
-} from './query.ts';
-import { Cards, type Sort_Order } from './data.ts';
+} from './query';
+import { Cards, type Sort_Order } from './data';
 
 export const PROPS_REQUIRED_FOR_DISPLAY: Prop[] = ['sfurl', 'img', 'landscape'];
 
@@ -31,7 +31,7 @@ const RARITY_RANK = Object.freeze({
     [RARITY_BONUS]: 5,
 });
 
-export async function find_cards_matching_query(
+export async function find_cards_matching_query_old(
     cards: Cards,
     query: Query,
     sort_order: Sort_Order,
@@ -62,27 +62,7 @@ export async function find_cards_matching_query(
     logger.time_end('find_cards_matching_query_load');
     logger.time('find_cards_matching_query_evaluate');
 
-    const len = cards.length ?? 0;
-    const add_version_idx = is_by_version_order(sort_order);
-    const evaluator = new Query_Evaluator(cards, query, true, true);
-
-    const matching_cards = new Map<number, number>();
-
-    for (let card_idx = 0; card_idx < len; card_idx++) {
-        try {
-            const result = evaluator.evaluate(card_idx, card_logger(card_idx));
-            const version_idx = result.first_or_null();
-
-            if (version_idx !== null) {
-                matching_cards.set(card_idx, add_version_idx ? version_idx : 0);
-            }
-        } catch (e) {
-            throw Error(
-                `Couldn't evaluate query with "${cards.name(card_idx)}".`,
-                { cause: e },
-            );
-        }
-    }
+    const matching_cards = await find_cards_matching_query(cards, query, card_logger);
 
     logger.time_end('find_cards_matching_query_evaluate');
     logger.time('find_cards_matching_query_load_sorter');
@@ -108,15 +88,33 @@ export async function find_cards_matching_query(
     return result;
 }
 
-function is_by_version_order(order: Sort_Order): boolean {
-    switch (order) {
-        case 'cmc':
-        case 'name':
-            return false;
+export async function find_cards_matching_query(
+    cards: Cards,
+    query: Query,
+    card_logger: (idx: number) => Logger,
+): Promise<Map<number, number>> {
+    assert(cards.length !== null);
 
-        case 'released_at':
-            return true;
+    const evaluator = new Query_Evaluator(cards, query, true, true);
+    const matching_cards = new Map<number, number>();
+
+    for (let card_idx = 0; card_idx < cards.length; card_idx++) {
+        try {
+            const result = evaluator.evaluate(card_idx, card_logger(card_idx));
+            const version_idx = result.first_or_null();
+
+            if (version_idx !== null) {
+                matching_cards.set(card_idx, version_idx);
+            }
+        } catch (e) {
+            throw Error(
+                `Couldn't evaluate query with "${cards.name(card_idx)}".`,
+                { cause: e },
+            );
+        }
     }
+
+    return matching_cards;
 }
 
 export class Query_Evaluator {

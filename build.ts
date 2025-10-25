@@ -23,11 +23,9 @@ await Bun.build({
 console.log('Copying data.');
 
 for (const file of await readdir('src', { recursive: true })) {
-    if (file.endsWith('.ts')) {
-        continue;
+    if (!file.endsWith('.ts')) {
+        await Bun.write(`out/${file}`, Bun.file(`src/${file}`), { createPath: true });
     }
-
-    await Bun.write(`out/${file}`, Bun.file(`src/${file}`), { createPath: true });
 }
 
 for (const file of await readdir('data', { recursive: true })) {

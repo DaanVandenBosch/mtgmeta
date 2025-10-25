@@ -1,5 +1,5 @@
-import { assert, assert_eq, Console_Logger } from './core.ts';
-import { INEXACT_REGEX, parse_mana_cost, PER_VERSION_PROPS, type Prop } from './query.ts';
+import { assert, assert_eq, Console_Logger } from './core';
+import { INEXACT_REGEX, parse_mana_cost, PER_VERSION_PROPS, type Prop } from './query';
 
 const TEXT_DECODER = new TextDecoder;
 
@@ -15,7 +15,7 @@ export interface Sorter {
     readonly order: Sort_Order;
     readonly type: Sort_Type;
 
-    sort(cards: Map<number, number>, asc: boolean): number[];
+    sort(cards: ReadonlyMap<number, number>, asc: boolean): number[];
 }
 
 /** Sorts by card order, which is name by default. */
@@ -29,7 +29,7 @@ class Default_Sorter implements Sorter {
         this.order = order;
     }
 
-    sort(cards: Map<number, number>, asc: boolean): number[] {
+    sort(cards: ReadonlyMap<number, number>, asc: boolean): number[] {
         const len = this.data.length ?? 0;
         const result = [];
 
@@ -81,7 +81,7 @@ class Index_Sorter implements Sorter {
         this.creation_time = creation_time;
     }
 
-    sort(cards: Map<number, number>, asc: boolean): number[] {
+    sort(cards: ReadonlyMap<number, number>, asc: boolean): number[] {
         const GROUP_TABLE_OFFSET = Index_Sorter.GROUP_TABLE_OFFSET;
         const type = this.type;
         const len = this.data.length ?? 0;
@@ -110,14 +110,16 @@ class Index_Sorter implements Sorter {
                     continue;
                 }
 
-                let version_idx = 0;
-
                 if (type === Sort_Type.BY_VERSION) {
-                    version_idx = this.u16(offset + 2);
-                }
+                    const version_idx = this.u16(offset + 2);
 
-                if (cards.get(card_idx) === version_idx) {
-                    result.push(card_idx);
+                    if (cards.get(card_idx) === version_idx) {
+                        result.push(card_idx);
+                    }
+                } else {
+                    if (cards.has(card_idx)) {
+                        result.push(card_idx);
+                    }
                 }
             }
         }

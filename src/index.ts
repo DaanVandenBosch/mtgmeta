@@ -9,27 +9,27 @@ import {
     Console_Logger,
     Mem_Logger,
     pop_count_32,
-} from './core.ts';
-import { Bitset, Bitset_32, Array_Set } from './uint_set.ts';
+} from './core';
+import { Bitset, Bitset_32, Array_Set } from './uint_set';
 import {
     type Query,
     PROPS,
     parse_query,
     combine_queries_with_conjunction,
     simplify_query,
-} from './query.ts';
+} from './query';
 import {
     Cards,
     type Sort_Order,
     SORT_ORDERS,
     remove_parenthesized_text,
-} from './data.ts';
+} from './data';
 import {
     PROPS_REQUIRED_FOR_DISPLAY,
-    find_cards_matching_query,
     Query_Evaluator,
-} from './query_eval.ts';
-import { type Result_Nav, Result_Set_View } from './result_set_view.ts';
+    find_cards_matching_query_old,
+} from './query_eval';
+import { type Result_Nav, Result_Set_View } from './result_set_view';
 
 const MAX_CARDS = 120;
 
@@ -596,7 +596,7 @@ async function filter(logger: Logger) {
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         try {
-            const res = await find_cards_matching_query(
+            const res = await find_cards_matching_query_old(
                 cards,
                 query,
                 inputs.sort_order,
@@ -687,7 +687,7 @@ async function run_test_suite() {
 
         test(`${name} [${query_string}]`, async logger => {
             const query = simplify_query(parse_query(query_string));
-            const result = await find_cards_matching_query(
+            const result = await find_cards_matching_query_old(
                 cards,
                 query,
                 'name',
@@ -721,7 +721,7 @@ async function run_test_suite() {
                     }
                 }
 
-                await find_cards_matching_query(
+                await find_cards_matching_query_old(
                     cards,
                     query,
                     'name',

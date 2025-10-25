@@ -1,4 +1,4 @@
-import { assert, unreachable, string_to_int } from './core.ts';
+import { assert, unreachable, string_to_int } from './core';
 
 export type Query = {
     readonly props: Prop[],

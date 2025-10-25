@@ -1,5 +1,5 @@
-import { create_el } from './core.ts';
-import { Cards } from './data.ts';
+import { create_el } from './core';
+import { Cards } from './data';
 
 export type Result_Nav = {
     start_idx: number,

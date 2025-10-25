@@ -1,4 +1,4 @@
-import { pop_count_32 } from "./core.js";
+import { pop_count_32 } from "./core";
 
 const memory = new ArrayBuffer(256 * 1024);
 

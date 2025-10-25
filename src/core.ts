@@ -48,8 +48,8 @@ export interface Logger {
     error(...args: any[]): void;
     group(...args: any[]): void;
     group_end(): void;
-    time(...args: any[]): void;
-    time_end(...args: any[]): void;
+    time(label?: string): void;
+    time_end(label?: string): void;
 }
 
 export const Nop_Logger: Logger = {
@@ -72,8 +72,8 @@ export const Console_Logger: Logger = {
     error(...args: any[]) { console.error(...args); },
     group(...args: any[]) { console.group(...args); },
     group_end() { console.groupEnd(); },
-    time(...args: any[]) { console.time(...args); },
-    time_end(...args: any[]) { console.timeEnd(...args); },
+    time(label?: string) { console.time(label); },
+    time_end(label?: string) { console.timeEnd(label); },
 };
 
 export class Mem_Logger implements Logger {
@@ -86,8 +86,8 @@ export class Mem_Logger implements Logger {
     error(...args: any[]) { this.message('error', ...args); }
     group(...args: any[]) { this.message('group', ...args); }
     group_end() { this.message('group_end'); }
-    time(...args: any[]) { this.message('time', ...args); }
-    time_end(...args: any[]) { this.message('time_end', ...args); }
+    time(label?: string) { this.message('time', ...(label === undefined ? [] : [label])); }
+    time_end(label?: string) { this.message('time_end', ...(label === undefined ? [] : [label])); }
 
     private message(level: keyof Logger, ...args: any[]) {
         this.messages.push({ level, args });
@@ -102,4 +102,14 @@ export class Mem_Logger implements Logger {
 
 export function create_el<E extends HTMLElement>(tagName: string): E {
     return document.createElement(tagName) as E;
+}
+
+export function get_el<E extends Element>(query: string): E {
+    const element = document.querySelector(query);
+
+    if (element === null) {
+        throw Error(`No element found for query "${query}".`);
+    }
+
+    return element as E;
 }

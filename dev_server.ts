@@ -7,7 +7,7 @@ try {
     await readdir('data');
 } catch {
     console.log('No data directory, preprocessing data first.');
-    await import('./preprocess_data.ts');
+    await import('./preprocess_data');
 }
 
 const server = Bun.serve({
@@ -15,7 +15,7 @@ const server = Bun.serve({
     port: 8000,
 
     async fetch(req) {
-        const path = new URL(req.url).pathname;
+        let path = new URL(req.url).pathname;
 
         let data: string | BunFile;
         let headers: { [K: string]: string } = {
@@ -25,22 +25,34 @@ const server = Bun.serve({
         if (path === '/') {
             data = Bun.file('src/index.html')
             headers['Content-Type'] = 'text/html';
-        } else if (path.endsWith('.js') || path.endsWith('.ts')) {
-            const file_content = await Bun.file('src' + path.slice(0, -2) + 'ts').text();
-            data = await transpiler.transform(file_content);
-            headers['Content-Type'] = 'text/javascript; charset=utf-8';
         } else if (path.startsWith('/data/')) {
             data = Bun.file('.' + path);
         } else {
+            let ts = false;
+
             if (path.endsWith('.css')) {
                 headers['Content-Type'] = 'text/css';
             } else if (path.endsWith('.xml')) {
                 headers['Content-Type'] = 'application/xml';
             } else if (path.endsWith('.html')) {
                 headers['Content-Type'] = 'text/html';
+            } else {
+                ts = true;
+                headers['Content-Type'] = 'text/javascript; charset=utf-8';
+
+                const dot = path.indexOf('.');
+
+                if (dot !== -1) {
+                    path = path.slice(0, dot);
+                }
             }
 
-            data = Bun.file('src' + path);
+            if (ts) {
+                const file_content = await Bun.file('src' + path + '.ts').text();
+                data = await transpiler.transform(file_content);
+            } else {
+                data = Bun.file('src' + path);
+            }
         }
 
         const data_buffer: Uint8Array<ArrayBuffer> =
