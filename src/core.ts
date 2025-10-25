@@ -113,3 +113,23 @@ export function get_el<E extends Element>(query: string): E {
 
     return element as E;
 }
+
+export function to_string(object: any) {
+    return JSON.stringify(object, (_k, v) => {
+        if (v instanceof Set) {
+            return [...v];
+        } else {
+            return v;
+        }
+    });
+}
+
+export function time_to_string(time: number): string {
+    const m = Math.floor(time / 60_000);
+    const s = Math.floor(time / 1_000) - m * 60;
+    const ms = time - s * 1000 - m * 60_000;
+    const m_str = m.toString().padStart(2, '0');
+    const s_str = s.toString().padStart(2, '0');
+    const ms_str = ms.toString().padStart(3, '0');
+    return `${m_str}:${s_str}.${ms_str}`;
+}
