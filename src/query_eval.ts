@@ -18,7 +18,7 @@ import {
     RARITY_SPECIAL,
     RARITY_BONUS,
 } from './query';
-import { Cards, type Sort_Order } from './data';
+import { Cards, type Sort_Order } from './cards';
 const freeze = Object.freeze;
 
 export const PROPS_REQUIRED_FOR_DISPLAY: readonly Prop[] = freeze(['sfurl', 'img', 'landscape']);

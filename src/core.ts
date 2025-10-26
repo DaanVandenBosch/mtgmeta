@@ -117,20 +117,6 @@ export class Mem_Logger implements Logger {
     }
 }
 
-export function create_el<E extends HTMLElement>(tagName: string): E {
-    return document.createElement(tagName) as E;
-}
-
-export function get_el<E extends Element>(parent: ParentNode, query: string): E {
-    const element = parent.querySelector(query);
-
-    if (element === null) {
-        throw Error(`No element found for query "${query}".`);
-    }
-
-    return element as E;
-}
-
 export function to_string(object: any) {
     return JSON.stringify(object, (_k, v) => {
         if (v instanceof Set) {
@@ -149,4 +135,48 @@ export function time_to_string(time: number): string {
     const s_str = s.toString().padStart(2, '0');
     const ms_str = ms.toString().padStart(3, '0');
     return `${m_str}:${s_str}.${ms_str}`;
+}
+
+export function get_params(): URLSearchParams {
+    return new URLSearchParams(globalThis.location.search);
+}
+
+export function create_el<E extends HTMLElement>(tagName: string): E {
+    return document.createElement(tagName) as E;
+}
+
+export function get_el<E extends Element>(parent: ParentNode, query: string): E {
+    const element = parent.querySelector(query);
+
+    if (element === null) {
+        throw Error(`No element found for query "${query}".`);
+    }
+
+    return element as E;
+}
+
+export function key_combo(e: KeyboardEvent): string {
+    const bind = [];
+
+    if (e.ctrlKey) {
+        bind.push('Ctrl');
+    }
+
+    if (e.altKey) {
+        bind.push('Alt');
+    }
+
+    if (e.shiftKey) {
+        bind.push('Shift');
+    }
+
+    if (e.metaKey) {
+        bind.push('Meta');
+    }
+
+    if (e.key !== '') {
+        bind.push(e.key);
+    }
+
+    return bind.join(' ');
 }

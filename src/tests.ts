@@ -9,10 +9,10 @@ import {
     to_string,
     type Logger,
 } from "./core";
-import { remove_parenthesized_text, type Cards } from "./data";
+import { Array_Set, Bitset, Bitset_32 } from "./uint_set";
 import { parse_query, PROPS, simplify_query } from "./query";
 import { find_cards_matching_query_old } from "./query_eval";
-import { Array_Set, Bitset, Bitset_32 } from "./uint_set";
+import { remove_parenthesized_text, type Cards } from "./cards";
 
 export async function run_test_suite(cards: Cards) {
     Console_Logger.time('run_test_suite');

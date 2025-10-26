@@ -1,7 +1,7 @@
 import { Console_Logger, Nop_Logger, time_to_string } from "./core";
-import type { Cards } from "./data";
 import { parse_query, PROPS } from "./query";
 import { Query_Evaluator } from "./query_eval";
+import type { Cards } from "./cards";
 
 export async function run_benchmarks(cards: Cards) {
     const benchmarks: { name: string, set_up: () => any, execute: (input: any) => number }[] = [];
