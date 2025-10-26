@@ -10,19 +10,19 @@ export class Result_Set_View {
     private readonly cards: Cards;
     private readonly result: number[];
     private readonly nav: Result_Nav;
-    readonly el: HTMLElement = create_el('div');
+    readonly el: HTMLElement;
     readonly cards_el: HTMLElement = create_el('div');
 
-    constructor(cards: Cards, result: number[], nav: Result_Nav) {
+    constructor(cards: Cards, result: number[], nav: Result_Nav, el: HTMLElement) {
         this.cards = cards;
         this.result = result;
         this.nav = nav;
 
+        this.el = el;
         this.el.className = 'result';
         this.el.tabIndex = -1;
         this.cards_el.className = 'cards';
         this.cards_el.tabIndex = -1;
-        this.el.append(this.cards_el);
     }
 
     update() {
@@ -57,5 +57,6 @@ export class Result_Set_View {
         this.cards_el.innerHTML = '';
         this.cards_el.scroll(0, 0);
         this.cards_el.append(frag);
+        this.el.replaceChildren(this.cards_el);
     }
 }

@@ -193,11 +193,20 @@ header {
 
 .result {
     flex: 1;
+    display: grid;
+    grid-template: 100%/100%;
     overflow-x: auto;
     overflow-y: scroll;
 }
 
+.cards_loading {
+    align-self: center;
+    text-align: center;
+    font-size: 3em;
+}
+
 .cards {
+    align-self: start;
     display: grid;
     grid-template-columns: repeat(auto-fill, var(--card-half-width) var(--card-half-width));
     justify-content: center;

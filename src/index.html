@@ -17,7 +17,8 @@
     <header>
         <div class="filter_container">
             <div class="filter_base">
-                <input type="text" class="query" autofocus autocomplete="off" spellcheck="false">
+                <input type="text" class="query" autofocus autocomplete="off" spellcheck="false"
+                    onkeydown="if (event.key === 'Enter') { this.dataset['query_string'] = this.value; }">
                 <button class="filter_show_extra">
                     <div></div>
                     <div></div>
@@ -82,6 +83,9 @@
             <div class="result_dummy"></div>
         </div>
     </header>
+    <div class="result" tabindex="-1">
+        <div class="cards_loading">Loading...</div>
+    </div>
 </body>
 
 </html>

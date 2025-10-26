@@ -99,20 +99,19 @@ async function init() {
 
     cards = new Cards;
 
-    ui.query_el = get_el('.query');
-    ui.show_extra_el = get_el('.filter_show_extra');
-    ui.extra_el = get_el('.filter_extra');
-    ui.pool_el = get_el('.pool');
-    ui.sort_order_el = get_el('.sort_order');
-    ui.sort_dir_asc_el = get_el('.sort_dir input[value=asc]');
-    ui.sort_dir_desc_el = get_el('.sort_dir input[value=desc]');
-    ui.result_summary_el = get_el('.result_summary');
-    ui.result_prev_el = get_el('.result_prev');
-    ui.result_next_el = get_el('.result_next');
-    ui.result_first_el = get_el('.result_first');
-    ui.result_last_el = get_el('.result_last');
-    ui.result_set_view = new Result_Set_View(cards, result, result_nav);
-    document.body.append(ui.result_set_view.el);
+    ui.query_el = get_el(document, '.query');
+    ui.show_extra_el = get_el(document, '.filter_show_extra');
+    ui.extra_el = get_el(document, '.filter_extra');
+    ui.pool_el = get_el(document, '.pool');
+    ui.sort_order_el = get_el(document, '.sort_order');
+    ui.sort_dir_asc_el = get_el(document, '.sort_dir input[value=asc]');
+    ui.sort_dir_desc_el = get_el(document, '.sort_dir input[value=desc]');
+    ui.result_summary_el = get_el(document, '.result_summary');
+    ui.result_prev_el = get_el(document, '.result_prev');
+    ui.result_next_el = get_el(document, '.result_next');
+    ui.result_first_el = get_el(document, '.result_first');
+    ui.result_last_el = get_el(document, '.result_last');
+    ui.result_set_view = new Result_Set_View(cards, result, result_nav, get_el(document, '.result'));
     Object.freeze(ui);
 
     window.onpopstate = () => set_inputs_from_params(get_params(), false);

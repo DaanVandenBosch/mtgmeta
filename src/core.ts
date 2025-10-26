@@ -11,6 +11,21 @@ export function assert_eq<T>(actual: T, expected: T) {
     );
 }
 
+export function assert_nonnullish<T>(actual: T | undefined | null): T {
+    assert_nonnullish_helper(actual);
+    return actual;
+}
+
+/** Need this helper, because we can't have a return type and an asserts clause at the same time. */
+function assert_nonnullish_helper<T>(
+    actual: T | undefined | null,
+): asserts actual is T extends undefined | null ? never : T {
+    assert(
+        actual != null,
+        () => `Expected nonnullish value but got ${actual}.`,
+    );
+}
+
 export function unreachable(message?: string): never {
     throw Error(message ?? `Should never reach this code.`);
 }
@@ -104,8 +119,8 @@ export function create_el<E extends HTMLElement>(tagName: string): E {
     return document.createElement(tagName) as E;
 }
 
-export function get_el<E extends Element>(query: string): E {
-    const element = document.querySelector(query);
+export function get_el<E extends Element>(parent: ParentNode, query: string): E {
+    const element = parent.querySelector(query);
 
     if (element === null) {
         throw Error(`No element found for query "${query}".`);

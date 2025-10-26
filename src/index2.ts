@@ -28,7 +28,7 @@ const DEFAULT_QUERY_STRING = '';
 const DEFAULT_POOL = POOL_ALL;
 const DEFAULT_SORT_ORDER: Sort_Order = 'name';
 const DEFAULT_SORT_ASC = true;
-const DEFAULT_START_POS = 1;
+const DEFAULT_START_POS = 0;
 
 class Context {
     readonly logger: Logger;
@@ -60,6 +60,10 @@ abstract class Card_List {
     constructor(ctx: Context, id: number) {
         this.ctx = ctx;
         this.id = id;
+    }
+
+    get size(): number {
+        return this._card_indexes.size;
     }
 
     get loading_state(): Loading_State {
@@ -96,17 +100,10 @@ class Query_Card_List extends Card_List {
     }
 
     set query_string(query_string: string) {
-        this.set_query_string(query_string);
-    }
-
-    set_query_string(query_string: string): boolean {
         if (this._query_string !== query_string) {
             this._query_string = query_string;
             this._query = parse_query(query_string);
             this.ctx.deps.changed(this);
-            return true;
-        } else {
-            return false;
         }
     }
 
@@ -120,13 +117,21 @@ class Set_Card_List extends Card_List {
     readonly cards: ReadonlyMap<number, number> = new Map;
 };
 
+type Card_List_Window_State = {
+    query_string?: string,
+    pos?: number,
+    sort_order?: Sort_Order,
+    sort_asc?: boolean,
+};
+
 class Card_List_Window<List extends Card_List = Card_List> {
     private ctx: Context;
     readonly list: List;
     private _pos: number = 0;
-    readonly size: number = 120;
+    readonly max: number = 120;
     private _sort_order: Sort_Order = DEFAULT_SORT_ORDER;
     private _sort_asc: boolean = DEFAULT_SORT_ASC;
+    /** Contains all cards of list, sorted. */
     private _all_card_indexes: readonly number[] = [];
 
     constructor(ctx: Context, list: List) {
@@ -134,58 +139,71 @@ class Card_List_Window<List extends Card_List = Card_List> {
         this.list = list;
     }
 
+    async set(state: Card_List_Window_State) {
+        let changed = false;
+
+        if (state.query_string !== undefined) {
+            assert(this.list instanceof Query_Card_List);
+
+            if (state.query_string != this.list.query_string) {
+                this.list.query_string = state.query_string;
+                changed = true;
+            }
+        }
+
+        if (state.pos !== undefined && state.pos !== this._pos) {
+            this._pos = state.pos;
+            changed = true;
+        }
+
+        if (state.sort_order !== undefined && state.sort_order !== this._sort_order) {
+            this._sort_order = state.sort_order;
+            changed = true;
+        }
+
+        if (state.sort_asc !== undefined && state.sort_asc !== this._sort_asc) {
+            this._sort_asc = state.sort_asc;
+            changed = true;
+        }
+
+        if (changed || this.list.loading_state === 'initial') {
+            this.ctx.deps.changed(this);
+            await load_card_list_window(this.ctx, this);
+        }
+    }
+
+    get size(): number {
+        return Math.min(this.max, this.list.size - this.pos);
+    }
+
     get pos(): number {
         return this._pos;
     }
 
-    set pos(pos: number) {
-        this.set_pos(pos);
+    get prev_page(): number {
+        return Math.max(0, this.pos - this.max);
     }
 
-    set_pos(pos: number): boolean {
-        if (this._pos !== pos) {
-            this._pos = pos;
-            this.ctx.deps.changed(this);
-            return true;
-        } else {
-            return false;
-        }
+    get next_page(): number {
+        return Math.min(this.last_page, this.pos + this.max);
+    }
+
+    get first_page(): number {
+        return 0;
+    }
+
+    get last_page(): number {
+        const length = this.list.size;
+        const offset = this.pos % this.max;
+        return Math.floor((Math.max(0, length - 1) - offset) / this.max) * this.max + offset;
     }
 
     get sort_order(): Sort_Order {
         return this._sort_order;
     }
 
-    set sort_order(sort_order: Sort_Order) {
-        this.set_sort_order(sort_order);
-    }
-
-    set_sort_order(sort_order: Sort_Order): boolean {
-        if (this._sort_order !== sort_order) {
-            this._sort_order = sort_order;
-            this.ctx.deps.changed(this);
-            return true;
-        } else {
-            return false;
-        }
-    }
-
     get sort_asc(): boolean {
         return this._sort_asc;
-    }
-
-    set sort_asc(sort_asc: boolean) {
-        this.set_sort_asc(sort_asc);
-    }
-
-    set_sort_asc(sort_asc: boolean): boolean {
-        if (this._sort_asc !== sort_asc) {
-            this._sort_asc = sort_asc;
-            this.ctx.deps.changed(this);
-            return true;
-        } else {
-            return false;
-        }
     }
 
     /** Contains all cards of list, sorted. */
@@ -197,7 +215,7 @@ class Card_List_Window<List extends Card_List = Card_List> {
     }
 
     get card_indexes(): readonly number[] {
-        return this._all_card_indexes.slice(this.pos, this.pos + this.size);
+        return this._all_card_indexes.slice(this.pos, this.pos + this.max);
     }
 }
 
@@ -210,9 +228,12 @@ class Search_State {
         this.window = window;
     }
 
-    search(query_string: string) {
-        this.window.list.query_string = query_string;
-        load_card_list_window(this.ctx, this.window);
+    set(state: Card_List_Window_State) {
+        this.window.set(state);
+        // No need to await data load.
+
+        const params = get_params();
+        set_params_from_card_list_window(this.window, params);
     }
 
     /** Preloads properties needed for a given query string. */
@@ -254,11 +275,16 @@ async function init() {
     );
 
     const params = get_params();
-    const set_state_promise = set_state_from_params(ctx, ctx.view.search.window, params);
+    const set_state_promise = set_card_list_window_from_params(ctx, ctx.view.search.window, params);
 
     // Initialize view right after setting state from parameters, but before awaiting the initial
     // data load.
-    new Main_View(ctx);
+    new Main_View(ctx, document.body);
+
+    globalThis.onpopstate = () => {
+        set_card_list_window_from_params(ctx, ctx.view.search!.window, get_params());
+    };
+
     await set_state_promise;
 
     Console_Logger.time_end('init');
@@ -277,8 +303,8 @@ async function init() {
 
     // Run tests when hostname is localhost or an IPv4 address or explicit parameter is passed.
     const is_dev_host =
-        window.location.hostname === 'localhost'
-        || /^\d+\.\d+\.\d+\.\d+(:\d+)?$/g.test(window.location.hostname);
+        globalThis.location.hostname === 'localhost'
+        || /^\d+\.\d+\.\d+\.\d+(:\d+)?$/g.test(globalThis.location.hostname);
 
     if (tests_param === true || (is_dev_host && tests_param === null)) {
         await run_test_suite(ctx.cards);
@@ -290,21 +316,24 @@ async function init() {
 }
 
 function get_params(): URLSearchParams {
-    return new URLSearchParams(window.location.search);
+    return new URLSearchParams(globalThis.location.search);
 }
 
-async function set_state_from_params(
+async function set_card_list_window_from_params(
     ctx: Context,
     window: Card_List_Window,
     params: URLSearchParams,
 ) {
-    let changed = false;
+    let new_state: Card_List_Window_State = {
+        sort_order: DEFAULT_SORT_ORDER,
+        sort_asc: DEFAULT_SORT_ASC,
+        pos: DEFAULT_START_POS,
+    };
 
     if (window.list instanceof Query_Card_List) {
-        if (window.list.set_query_string(params.get('q') ?? DEFAULT_QUERY_STRING)) {
-            changed = true;
-        }
+        new_state.query_string = params.get('q') ?? DEFAULT_QUERY_STRING;
 
+        // TODO: pool
         // const pool = params.get('p');
 
         // if (pool !== null) {
@@ -318,55 +347,77 @@ async function set_state_from_params(
         unreachable();
     }
 
-    let sort_order = DEFAULT_SORT_ORDER;
-    const sort_order_param = params.get('o') as Sort_Order | null;
+    const sort_order = params.get('o') as Sort_Order | null;
 
-    if (sort_order_param !== null) {
-        if (SORT_ORDERS.includes(sort_order_param)) {
-            sort_order = sort_order_param;
+    if (sort_order !== null) {
+        if (SORT_ORDERS.includes(sort_order)) {
+            new_state.sort_order = sort_order;
         } else {
-            ctx.logger.error(`Invalid sort order in URL: ${sort_order_param}`);
+            ctx.logger.error(`Invalid sort order in URL: ${sort_order}`);
         }
     }
 
-    if (window.set_sort_order(sort_order)) {
-        changed = true;
-    }
+    const sort_dir = params.get('d');
 
-    let sort_asc = DEFAULT_SORT_ASC;
-    const sort_asc_param = params.get('d');
-
-    if (sort_asc_param !== null) {
-        if (sort_asc_param === 'a' || sort_asc_param === 'd') {
-            sort_asc = sort_asc_param === 'a';
+    if (sort_dir !== null) {
+        if (sort_dir === 'a' || sort_dir === 'd') {
+            new_state.sort_asc = sort_dir === 'a';
         } else {
-            ctx.logger.error(`Invalid sort direction in URL: ${sort_asc_param}`);
+            ctx.logger.error(`Invalid sort direction in URL: ${sort_dir}`);
         }
     }
 
-    if (window.set_sort_asc(sort_asc)) {
-        changed = true;
-    }
+    const pos = params.get('s');
 
-    let pos = DEFAULT_START_POS;
-    const pos_param = params.get('s');
-
-    if (pos_param !== null) {
-        const pos_int = string_to_int(pos_param);
+    if (pos !== null) {
+        const pos_int = string_to_int(pos);
 
         if (pos_int !== null && pos_int >= 1) {
-            pos = pos_int;
+            new_state.pos = pos_int - 1;
         } else {
-            ctx.logger.error(`Invalid start position in URL: ${pos_param}`);
+            ctx.logger.error(`Invalid start position in URL: ${pos}`);
         }
     }
 
-    if (window.set_pos(pos)) {
-        changed = true;
+    await window.set(new_state);
+}
+
+function set_params_from_card_list_window(
+    window: Card_List_Window,
+    params: URLSearchParams,
+) {
+    if (window.list instanceof Query_Card_List) {
+        if (window.list.query_string === DEFAULT_QUERY_STRING) {
+            params.delete('q');
+        } else {
+            params.set('q', window.list.query_string);
+        }
     }
 
-    if (changed || window.list.loading_state === 'initial') {
-        await load_card_list_window(ctx, window);
+    // TODO: pool.
+
+    if (window.pos === DEFAULT_START_POS) {
+        params.delete('s');
+    } else {
+        params.set('s', String(window.pos + 1));
+    }
+
+    if (window.sort_order === DEFAULT_SORT_ORDER) {
+        params.delete('o');
+    } else {
+        params.set('o', window.sort_order);
+    }
+
+    if (window.sort_asc === DEFAULT_SORT_ASC) {
+        params.delete('d');
+    } else {
+        params.set('d', window.sort_asc ? 'a' : 'd');
+    }
+
+    const new_search = params.size ? `?${params}` : '';
+
+    if (globalThis.location.search !== new_search) {
+        globalThis.history.pushState(null, '', `/${new_search}`);
     }
 }
 
@@ -552,10 +603,11 @@ async function load_query_card_list_attempt(
 class Main_View {
     private ctx: Context;
     private search_view: Search_View | null = null;
-    readonly el: HTMLElement = document.body;
+    readonly el: HTMLElement;
 
-    constructor(ctx: Context) {
+    constructor(ctx: Context, el: HTMLElement) {
         this.ctx = ctx;
+        this.el = el;
         this.update();
     }
 
@@ -564,7 +616,7 @@ class Main_View {
             case 'search':
                 if (this.ctx.view.search) {
                     if (this.search_view === null) {
-                        this.search_view = new Search_View(this.ctx, this.ctx.view.search);
+                        this.search_view = new Search_View(this.ctx, this.ctx.view.search, this.el);
                     }
                 }
 
@@ -579,37 +631,116 @@ class Main_View {
 
 class Search_View implements Dependent {
     private state: Search_State;
-    private query_el: HTMLInputElement = get_el('.query');
-    private pool_el: HTMLSelectElement = get_el('.pool');
-    private sort_order_el: HTMLSelectElement = get_el('.sort_order');
-    private sort_dir_asc_el: HTMLInputElement = get_el('.sort_dir input[value=asc]');
-    private sort_dir_desc_el: HTMLInputElement = get_el('.sort_dir input[value=desc]');
+    private prev_query_string: string = '';
+    private query_el: HTMLInputElement;
+    private pool_el: HTMLSelectElement;
+    private sort_order_el: HTMLSelectElement;
+    private sort_dir_asc_el: HTMLInputElement;
+    private sort_dir_desc_el: HTMLInputElement;
+    private result_summary_el: HTMLElement;
+    private result_prev_el: HTMLButtonElement;
+    private result_next_el: HTMLButtonElement;
+    private result_first_el: HTMLButtonElement;
+    private result_last_el: HTMLButtonElement;
 
-    constructor(ctx: Context, state: Search_State) {
+    constructor(ctx: Context, state: Search_State, el: HTMLElement) {
         this.state = state;
         ctx.deps.add(this, state.window, state.window.list);
 
+        this.query_el = get_el(el, ':scope > header .query');
+        this.pool_el = get_el(el, ':scope > header .pool');
+        this.sort_order_el = get_el(el, ':scope > header .sort_order');
+        this.sort_dir_asc_el = get_el(el, ':scope > header .sort_dir input[value=asc]');
+        this.sort_dir_desc_el = get_el(el, ':scope > header .sort_dir input[value=desc]');
+        this.result_summary_el = get_el(el, ':scope > header .result_summary');
+        this.result_prev_el = get_el(el, ':scope > header .result_prev');
+        this.result_next_el = get_el(el, ':scope > header .result_next');
+        this.result_first_el = get_el(el, ':scope > header .result_first');
+        this.result_last_el = get_el(el, ':scope > header .result_last');
+
+        // The initial HTML onkeydown handler might have already set a query string.
+        const initial_query_string = this.query_el.dataset['query_string'];
+
+        if (initial_query_string !== undefined) {
+            state.set({ query_string: initial_query_string });
+
+            // Remove the temporary data and handler.
+            delete this.query_el.dataset['query_string'];
+            this.query_el.removeAttribute('onkeydown');
+        }
+
         this.query_el.onkeydown = e => this.query_keydown(e);
         this.query_el.onkeyup = () => this.query_keyup();
+        this.sort_order_el.onchange = () => this.sort_order_change();
+        this.sort_dir_asc_el.onchange = () => this.sort_dir_change();
+        this.sort_dir_desc_el.onchange = () => this.sort_dir_change();
+        this.result_prev_el.onclick = () => state.set({ pos: state.window.prev_page });
+        this.result_next_el.onclick = () => state.set({ pos: state.window.next_page });
+        this.result_first_el.onclick = () => state.set({ pos: state.window.first_page });
+        this.result_last_el.onclick = () => state.set({ pos: state.window.last_page });
 
         this.update();
 
-        const card_list_view = new Card_List_View(ctx, state.window);
-        document.body.append(card_list_view.el);
+        new Card_List_View(
+            ctx,
+            state.window,
+            get_el<HTMLDivElement>(el, ':scope > .result'),
+        );
     }
 
     update() {
         const window = this.state.window;
-        this.query_el.value = window.list.query_string;
+
+        // We don't want to overwrite the user's input if the query string didn't change.
+        if (window.list.query_string !== this.prev_query_string) {
+            this.query_el.value = window.list.query_string;
+            this.prev_query_string = window.list.query_string;
+        }
+
         this.sort_order_el.value = window.sort_order;
         (window.sort_asc ? this.sort_dir_asc_el : this.sort_dir_desc_el).checked = true;
+
+        let summary: string;
+
+        switch (window.list.loading_state) {
+            // Avoid showing "Loading..." when the user opens the app, as it makes you think you
+            // can't filter cards yet.
+            case 'initial':
+            case 'first_load':
+                summary = '';
+                break;
+            case 'loading':
+                summary = 'Loading...';
+                break;
+            case 'success':
+                summary =
+                    window.list.size === 0
+                        ? 'No matches.'
+                        : `Showing ${window.pos + 1}-${window.pos + window.size} of ${window.list.size} matches.`;
+                break;
+            default:
+                unreachable();
+        }
+
+        this.result_summary_el.innerText = summary;
+
+        const at_first_page = window.pos === window.first_page;
+        const at_last_page = window.pos >= window.last_page;
+        this.result_prev_el.disabled = at_first_page;
+        this.result_next_el.disabled = at_last_page;
+        this.result_first_el.disabled = at_first_page;
+        this.result_last_el.disabled = at_last_page;
     }
 
     private query_keydown(e: KeyboardEvent) {
         switch (key_combo(e)) {
-            case 'Enter':
-                this.state.search(this.query_el.value);
+            case 'Enter': {
+                this.state.set({
+                    query_string: this.query_el.value,
+                    pos: 0,
+                });
                 break;
+            }
             case 'ArrowDown': {
                 e.preventDefault();
                 e.stopPropagation();
@@ -631,54 +762,89 @@ class Search_View implements Dependent {
         // Try to preload properties while the user is typing.
         this.state.preload(this.query_el.value);
     }
+
+    private sort_order_change() {
+        const sort_order = this.sort_order_el.value as Sort_Order;
+        assert(
+            SORT_ORDERS.includes(sort_order),
+            () => `Invalid sort order "${sort_order}" in select field.`,
+        );
+        this.state.set({
+            sort_order,
+            pos: 0,
+        });
+    }
+
+    private sort_dir_change() {
+        const sort_asc = this.sort_dir_asc_el.checked;
+        assert(this.sort_dir_desc_el.checked !== sort_asc);
+        this.state.set({
+            sort_asc,
+            pos: 0,
+        });
+    }
 }
 
 class Card_List_View implements Dependent {
     private ctx: Context;
     private window: Card_List_Window;
-    private cards_el: HTMLElement = create_el('div');
-    readonly el: HTMLElement = create_el('div');
+    private loading_el: HTMLElement;
+    private cards_el: HTMLElement;
+    readonly el: HTMLElement;
 
-    constructor(ctx: Context, window: Card_List_Window) {
+    constructor(ctx: Context, window: Card_List_Window, el?: HTMLDivElement) {
         this.ctx = ctx;
         this.window = window;
         ctx.deps.add(this, window);
 
-        this.cards_el.className = 'cards';
+        this.el = el ?? create_el('div');
         this.el.className = 'result';
+        this.loading_el = el?.querySelector(':scope > .cards_loading') ?? create_el('div');
+        this.loading_el.className = 'cards_loading';
+        this.loading_el.innerText = 'Loading...';
+        this.cards_el = el?.querySelector(':scope > .cards') ?? create_el('div');
+        this.cards_el.className = 'cards';
         this.update();
-        this.el.append(this.cards_el);
+        this.el.append(this.loading_el, this.cards_el);
     }
 
     update() {
-        const cards = this.ctx.cards;
-        const frag = document.createDocumentFragment();
+        const list = this.window.list;
+        const loading = list.loading_state === 'initial' || list.loading_state === 'first_load';
 
-        for (const card_index of this.window.card_indexes) {
-            const div = create_el('div');
-            div.className = 'card_wrapper';
+        this.loading_el.hidden = !loading;
+        this.cards_el.hidden = loading;
 
-            if (cards.get<boolean>(card_index, 'landscape') === true) {
-                div.classList.add('landscape');
+        if (!loading) {
+            const cards = this.ctx.cards;
+            const frag = document.createDocumentFragment();
+
+            for (const card_index of this.window.card_indexes) {
+                const div = create_el('div');
+                div.className = 'card_wrapper';
+
+                if (cards.get<boolean>(card_index, 'landscape') === true) {
+                    div.classList.add('landscape');
+                }
+
+                const a: HTMLAnchorElement = create_el('a');
+                a.className = 'card';
+                a.href = cards.scryfall_url(card_index) ?? '';
+                a.target = '_blank';
+                a.rel = 'noreferrer';
+                div.append(a);
+
+                const img: HTMLImageElement = create_el('img');
+                img.loading = 'lazy';
+                img.src = cards.image_url(card_index) ?? '';
+                a.append(img);
+
+                frag.append(div);
             }
 
-            const a: HTMLAnchorElement = create_el('a');
-            a.className = 'card';
-            a.href = cards.scryfall_url(card_index) ?? '';
-            a.target = '_blank';
-            a.rel = 'noreferrer';
-            div.append(a);
-
-            const img: HTMLImageElement = create_el('img');
-            img.loading = 'lazy';
-            img.src = cards.image_url(card_index) ?? '';
-            a.append(img);
-
-            frag.append(div);
+            this.cards_el.replaceChildren(frag);
+            this.el.scrollTo(0, 0);
         }
-
-        this.cards_el.replaceChildren(frag);
-        this.el.scrollTo(0, 0);
     }
 
     dispose() {
@@ -716,5 +882,5 @@ function key_combo(e: KeyboardEvent): string {
 if (document.body) {
     init();
 } else {
-    window.addEventListener('DOMContentLoaded', init);
+    globalThis.addEventListener('DOMContentLoaded', init);
 }
