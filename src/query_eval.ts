@@ -19,10 +19,11 @@ import {
     RARITY_BONUS,
 } from './query';
 import { Cards, type Sort_Order } from './data';
+const freeze = Object.freeze;
 
-export const PROPS_REQUIRED_FOR_DISPLAY: Prop[] = ['sfurl', 'img', 'landscape'];
+export const PROPS_REQUIRED_FOR_DISPLAY: readonly Prop[] = freeze(['sfurl', 'img', 'landscape']);
 
-const RARITY_RANK = Object.freeze({
+const RARITY_RANK = freeze({
     [RARITY_COMMON]: 0,
     [RARITY_UNCOMMON]: 1,
     [RARITY_RARE]: 2,

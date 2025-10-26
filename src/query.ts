@@ -1,7 +1,8 @@
-import { assert, unreachable, string_to_int } from './core';
+import { assert, unreachable, string_to_int, type Mutable } from './core';
+const freeze = Object.freeze;
 
 export type Query = {
-    readonly props: Prop[],
+    readonly props: readonly Prop[],
     readonly condition: Condition,
 };
 
@@ -46,12 +47,12 @@ type Negation_Condition = {
 
 type Disjunction_Condition = {
     readonly type: 'or',
-    readonly conditions: Condition[],
+    readonly conditions: readonly Condition[],
 }
 
 type Conjunction_Condition = {
     readonly type: 'and',
-    readonly conditions: Condition[],
+    readonly conditions: readonly Condition[],
 }
 
 type True_Condition = {
@@ -88,11 +89,11 @@ export type Range_Condition = {
     readonly end_inc: boolean,
 }
 
-export type Mana_Cost = { [K: string]: number };
+export type Mana_Cost = { readonly [mana_type: string]: number };
 
 type Operator = ':' | '=' | '!=' | '<' | '>' | '<=' | '>=';
 
-export const PROPS: Prop[] = [
+export const PROPS: readonly Prop[] = freeze([
     'colors',
     'formats',
     'identity',
@@ -114,8 +115,9 @@ export const PROPS: Prop[] = [
     'sfurl',
     'type',
     'type_search',
-];
-export const PER_VERSION_PROPS: Prop[] = ['rarity', 'released_at', 'reprint', 'set'];
+]);
+export const PER_VERSION_PROPS: readonly Prop[] =
+    freeze(['rarity', 'released_at', 'reprint', 'set']);
 
 export const MANA_WHITE = 'W';
 export const MANA_BLUE = 'U';
@@ -127,7 +129,7 @@ export const MANA_GENERIC = 'N'; // Specifc generic cost.
 export const MANA_GENERIC_X = 'X'; // Generic cost of "X".
 export const MANA_SNOW = 'S';
 export const MANA_PHYREXIAN = 'P';
-export const MANA_WUBRG = Object.freeze([MANA_WHITE, MANA_BLUE, MANA_BLACK, MANA_RED, MANA_GREEN]);
+export const MANA_WUBRG = freeze([MANA_WHITE, MANA_BLUE, MANA_BLACK, MANA_RED, MANA_GREEN]);
 
 export const RARITY_COMMON = 'common';
 export const RARITY_UNCOMMON = 'uncommon';
@@ -137,6 +139,9 @@ export const RARITY_SPECIAL = 'special';
 export const RARITY_BONUS = 'bonus';
 
 export const INEXACT_REGEX = /[.,:;/\\'" \t]+/g;
+
+const TRUE_CONDITION: True_Condition = freeze({ type: 'true' });
+const FALSE_CONDITION: False_Condition = freeze({ type: 'false' });
 
 export function parse_query(query_string: string): Query {
     return new Query_Parser().parse(query_string);
@@ -155,15 +160,15 @@ class Query_Parser {
         let condition: Condition | false | null = this.parse_disjunction();
 
         if (condition === false || this.chars_left()) {
-            condition = { type: 'false' };
+            condition = FALSE_CONDITION;
         } else if (condition === null) {
-            condition = { type: 'true' };
+            condition = TRUE_CONDITION;
         }
 
-        return {
-            props: [...this.props],
+        return freeze({
+            props: freeze([...this.props]),
             condition,
-        };
+        });
     }
 
     private chars_left(): boolean {
@@ -224,10 +229,10 @@ class Query_Parser {
             return conditions[0];
         }
 
-        return {
+        return freeze({
             type: 'or',
-            conditions,
-        };
+            conditions: freeze(conditions),
+        });
     }
 
     private parse_conjunction(): Condition | false | null {
@@ -276,10 +281,10 @@ class Query_Parser {
             return conditions[0];
         }
 
-        return {
+        return freeze({
             type: 'and',
-            conditions,
-        };
+            conditions: freeze(conditions),
+        });
     }
 
     private parse_condition(): Condition | false | null {
@@ -311,7 +316,7 @@ class Query_Parser {
         }
 
         const { keyword, operator } = keyword_and_operator;
-        let result = null;
+        let result: Condition | null = null;
 
         switch (keyword) {
             case 'color':
@@ -402,10 +407,10 @@ class Query_Parser {
             return null;
         }
 
-        return {
+        return freeze({
             type: 'not',
             condition,
-        };
+        });
     }
 
     private parse_keyword_and_operator(): { keyword: string, operator: Operator } | null {
@@ -453,7 +458,7 @@ class Query_Parser {
         }
 
         value_string = value_string.toLocaleLowerCase('en');
-        let value: Mana_Cost | null = null;
+        let value: Mutable<Mana_Cost> | null = null;
 
         switch (value_string) {
             case 'colorless':
@@ -592,7 +597,7 @@ class Query_Parser {
         return this.add_prop({
             type: this.operator_to_type(operator, colon_type),
             prop,
-            value,
+            value: freeze(value),
         });
     }
 
@@ -666,11 +671,11 @@ class Query_Parser {
 
         switch (prop) {
             case 'reprint':
-                return {
+                return freeze({
                     type: 'eq',
                     prop,
                     value,
-                };
+                });
 
             default:
                 this.pos = start_pos;
@@ -755,17 +760,17 @@ class Query_Parser {
             }
 
             if (conditions.length === 0) {
-                return { type: 'true' };
+                return TRUE_CONDITION;
             }
 
             if (conditions.length === 1) {
                 return conditions[0];
             }
 
-            return {
+            return freeze({
                 type: 'and',
-                conditions,
-            };
+                conditions: freeze(conditions),
+            });
         }
     }
 
@@ -931,7 +936,7 @@ class Query_Parser {
 
     private add_prop<T extends Condition & { prop: Prop }>(cond: T): T {
         this.props.add(cond.prop);
-        return cond;
+        return freeze(cond);
     }
 
     private create_released_at_cond(
@@ -985,7 +990,7 @@ class Query_Parser {
             });
 
             if (type === 'ne') {
-                return { type: 'not', condition };
+                return freeze({ type: 'not', condition });
             }
 
             return condition;
@@ -1022,7 +1027,7 @@ class Query_Parser {
 
 export function parse_mana_cost(input: string, start = 0): { cost: Mana_Cost, len: number } {
     let pos = start;
-    const cost: Mana_Cost = {};
+    const cost: Mutable<Mana_Cost> = {};
 
     for (; ;) {
         const result = parse_mana_symbol(input, pos);
@@ -1036,13 +1041,13 @@ export function parse_mana_cost(input: string, start = 0): { cost: Mana_Cost, le
         pos += len;
     }
 
-    return { cost, len: pos - start };
+    return { cost: freeze(cost), len: pos - start };
 }
 
 function parse_mana_symbol(
     input: string,
     start: number,
-): { symbol: string, generic: number | null, len: number } | null {
+): { readonly symbol: string, readonly generic: number | null, readonly len: number } | null {
     let pos = start;
     const initial_regex = /([WUBRGCXS]|\d+)/iy;
     initial_regex.lastIndex = pos;
@@ -1052,7 +1057,7 @@ function parse_mana_symbol(
         const symbol_or_generic = initial_match[0].toLocaleUpperCase('en');
         const generic = string_to_int(symbol_or_generic);
         const symbol = generic === null ? symbol_or_generic : MANA_GENERIC;
-        return { symbol, generic, len: initial_match[0].length };
+        return freeze({ symbol, generic, len: initial_match[0].length });
     }
 
     if (input[pos] !== '{') {
@@ -1235,7 +1240,7 @@ function parse_mana_symbol(
         }
     }
 
-    return { symbol: str, generic, len: pos - start };
+    return freeze({ symbol: str, generic, len: pos - start });
 }
 
 export function combine_queries_with_conjunction(...queries: Query[]): Query {
@@ -1256,13 +1261,13 @@ export function combine_queries_with_conjunction(...queries: Query[]): Query {
         conditions.push(query.condition);
     }
 
-    return {
-        props: [...props],
-        condition: {
+    return freeze({
+        props: freeze([...props]),
+        condition: freeze({
             type: 'and',
-            conditions,
-        }
-    };
+            conditions: freeze(conditions),
+        })
+    });
 }
 
 /** Reduces amount of condition nesting. */
@@ -1278,10 +1283,10 @@ class Query_Simplifier {
 
         const condition = this.simplify_condition(query.condition);
 
-        return {
-            props: [...this.props],
+        return freeze({
+            props: freeze([...this.props]),
             condition,
-        }
+        })
     }
 
     private simplify_condition(condition: Condition): Condition {
@@ -1294,64 +1299,64 @@ class Query_Simplifier {
                         return nested_cond.condition;
 
                     case 'true':
-                        return { type: 'false' };
+                        return FALSE_CONDITION;
 
                     case 'false':
-                        return { type: 'true' };
+                        return TRUE_CONDITION;
 
                     case 'eq':
-                        return {
+                        return freeze({
                             type: 'ne',
                             prop: nested_cond.prop,
                             value: nested_cond.value,
-                        };
+                        });
 
                     case 'ne':
-                        return {
+                        return freeze({
                             type: 'eq',
                             prop: nested_cond.prop,
                             value: nested_cond.value,
-                        };
+                        });
 
                     case 'lt':
-                        return {
+                        return freeze({
                             type: 'ge',
                             prop: nested_cond.prop,
                             value: nested_cond.value,
-                        };
+                        });
 
                     case 'le':
-                        return {
+                        return freeze({
                             type: 'gt',
                             prop: nested_cond.prop,
                             value: nested_cond.value,
-                        };
+                        });
 
                     case 'gt':
-                        return {
+                        return freeze({
                             type: 'le',
                             prop: nested_cond.prop,
                             value: nested_cond.value,
-                        };
+                        });
 
                     case 'ge':
-                        return {
+                        return freeze({
                             type: 'lt',
                             prop: nested_cond.prop,
                             value: nested_cond.value,
-                        };
+                        });
 
                     case 'even':
-                        return {
+                        return freeze({
                             type: 'odd',
                             prop: nested_cond.prop,
-                        };
+                        });
 
                     case 'odd':
-                        return {
+                        return freeze({
                             type: 'even',
                             prop: nested_cond.prop,
-                        };
+                        });
 
                     case 'or':
                     case 'and':
@@ -1370,7 +1375,7 @@ class Query_Simplifier {
                     switch (nested_cond.type) {
                         case 'true':
                             // Entire disjunction is true.
-                            return { type: 'true' };
+                            return TRUE_CONDITION;
                         case 'false':
                             // Has no effect on disjunction.
                             continue;
@@ -1385,17 +1390,17 @@ class Query_Simplifier {
 
                 if (conditions.length === 0) {
                     // All were false.
-                    return { type: 'false' };
+                    return FALSE_CONDITION;
                 }
 
                 if (conditions.length === 1) {
                     return conditions[0];
                 }
 
-                return {
+                return freeze({
                     type: 'or',
-                    conditions,
-                };
+                    conditions: freeze(conditions),
+                });
             }
 
             case 'and': {
@@ -1410,7 +1415,7 @@ class Query_Simplifier {
                             continue;
                         case 'false':
                             // Entire conjunction is false.
-                            return { type: 'false' };
+                            return FALSE_CONDITION;
                         case 'and':
                             conditions.push(...nested_cond.conditions);
                             break;
@@ -1422,17 +1427,17 @@ class Query_Simplifier {
 
                 if (conditions.length === 0) {
                     // All were true.
-                    return { type: 'true' };
+                    return TRUE_CONDITION;
                 }
 
                 if (conditions.length === 1) {
                     return conditions[0];
                 }
 
-                return {
+                return freeze({
                     type: 'and',
-                    conditions,
-                };
+                    conditions: freeze(conditions),
+                });
             }
 
             case 'true':
@@ -1455,3 +1460,5 @@ class Query_Simplifier {
         }
     }
 }
+
+export const QUERY_ALL = parse_query('');

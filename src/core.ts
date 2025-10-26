@@ -1,3 +1,5 @@
+export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
 export function assert(condition: boolean, message?: () => string): asserts condition {
     if (!condition) {
         throw Error(message ? message() : 'Assertion failed.');
