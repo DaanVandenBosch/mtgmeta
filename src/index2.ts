@@ -36,7 +36,7 @@ class Context {
     readonly view: {
         active: 'search' | 'card_list',
         search: Search_State | null,
-        card_list: Card_List_Window | null,
+        card_list: Card_List | null,
     } = {
             active: 'search',
             search: null,
@@ -51,129 +51,46 @@ class Context {
 
 type Loading_State = 'initial' | 'first_load' | 'loading' | 'success';
 
-abstract class Card_List {
+type Card_List_State = {
+    query_string?: string,
+    pos?: number,
+    sort_order?: Sort_Order,
+    sort_asc?: boolean,
+    loading_state?: Loading_State,
+    all_card_indexes?: readonly number[],
+};
+
+class Card_List {
     protected ctx: Context;
     readonly id: number;
+    private _query_string: string = DEFAULT_QUERY_STRING;
+    private _query: Query = parse_query(this._query_string);
+    private _pos: number = 0;
+    readonly max_page_size: number = 120;
+    private _sort_order: Sort_Order = DEFAULT_SORT_ORDER;
+    private _sort_asc: boolean = DEFAULT_SORT_ASC;
     private _loading_state: Loading_State = 'initial';
-    private _card_indexes: ReadonlyMap<number, number> = new Map;
+    private _all_card_indexes: readonly number[] = [];
 
     constructor(ctx: Context, id: number) {
         this.ctx = ctx;
         this.id = id;
     }
 
-    get size(): number {
-        return this._card_indexes.size;
-    }
-
-    get loading_state(): Loading_State {
-        return this._loading_state;
-    }
-
-    set loading_state(state: Loading_State) {
-        if (this._loading_state !== state) {
-            this._loading_state = state;
-            this.ctx.deps.changed(this);
-        }
-    }
-
-    /** Maps card indexes to version indexes. */
-    get card_indexes(): ReadonlyMap<number, number> {
-        return this._card_indexes;
-    }
-
-    set card_indexes(indexes: ReadonlyMap<number, number>) {
-        if (this._card_indexes !== indexes) {
-            this._card_indexes = indexes;
-            this.ctx.deps.changed(this);
-        }
-    }
-}
-
-class Query_Card_List extends Card_List {
-    readonly type = 'query';
-    private _query_string: string = DEFAULT_QUERY_STRING;
-    private _query: Query = parse_query(this._query_string);
-
     get query_string(): string {
         return this._query_string;
-    }
-
-    set query_string(query_string: string) {
-        if (this._query_string !== query_string) {
-            this._query_string = query_string;
-            this._query = parse_query(query_string);
-            this.ctx.deps.changed(this);
-        }
     }
 
     get query(): Query {
         return this._query;
     }
-}
-
-class Set_Card_List extends Card_List {
-    readonly type = 'set';
-    readonly cards: ReadonlyMap<number, number> = new Map;
-};
-
-type Card_List_Window_State = {
-    query_string?: string,
-    pos?: number,
-    sort_order?: Sort_Order,
-    sort_asc?: boolean,
-};
-
-class Card_List_Window<List extends Card_List = Card_List> {
-    private ctx: Context;
-    readonly list: List;
-    private _pos: number = 0;
-    readonly max: number = 120;
-    private _sort_order: Sort_Order = DEFAULT_SORT_ORDER;
-    private _sort_asc: boolean = DEFAULT_SORT_ASC;
-    /** Contains all cards of list, sorted. */
-    private _all_card_indexes: readonly number[] = [];
-
-    constructor(ctx: Context, list: List) {
-        this.ctx = ctx;
-        this.list = list;
-    }
-
-    async set(state: Card_List_Window_State) {
-        let changed = false;
-
-        if (state.query_string !== undefined) {
-            assert(this.list instanceof Query_Card_List);
-
-            if (state.query_string != this.list.query_string) {
-                this.list.query_string = state.query_string;
-                changed = true;
-            }
-        }
-
-        if (state.pos !== undefined && state.pos !== this._pos) {
-            this._pos = state.pos;
-            changed = true;
-        }
-
-        if (state.sort_order !== undefined && state.sort_order !== this._sort_order) {
-            this._sort_order = state.sort_order;
-            changed = true;
-        }
-
-        if (state.sort_asc !== undefined && state.sort_asc !== this._sort_asc) {
-            this._sort_asc = state.sort_asc;
-            changed = true;
-        }
-
-        if (changed || this.list.loading_state === 'initial') {
-            this.ctx.deps.changed(this);
-            await load_card_list_window(this.ctx, this);
-        }
-    }
 
     get size(): number {
-        return Math.min(this.max, this.list.size - this.pos);
+        return this._all_card_indexes.length;
+    }
+
+    get page_size(): number {
+        return Math.min(this.max_page_size, this.size - this.pos);
     }
 
     get pos(): number {
@@ -181,11 +98,11 @@ class Card_List_Window<List extends Card_List = Card_List> {
     }
 
     get prev_page(): number {
-        return Math.max(0, this.pos - this.max);
+        return Math.max(0, this.pos - this.max_page_size);
     }
 
     get next_page(): number {
-        return Math.min(this.last_page, this.pos + this.max);
+        return Math.min(this.last_page, this.pos + this.max_page_size);
     }
 
     get first_page(): number {
@@ -193,9 +110,9 @@ class Card_List_Window<List extends Card_List = Card_List> {
     }
 
     get last_page(): number {
-        const length = this.list.size;
-        const offset = this.pos % this.max;
-        return Math.floor((Math.max(0, length - 1) - offset) / this.max) * this.max + offset;
+        const psize = this.max_page_size;
+        const offset = this.pos % psize;
+        return Math.floor((Math.max(0, this.size - 1) - offset) / psize) * psize + offset;
     }
 
     get sort_order(): Sort_Order {
@@ -206,39 +123,173 @@ class Card_List_Window<List extends Card_List = Card_List> {
         return this._sort_asc;
     }
 
-    /** Contains all cards of list, sorted. */
-    set all_card_indexes(indexes: readonly number[]) {
-        if (this._all_card_indexes !== indexes) {
-            this._all_card_indexes = indexes;
-            this.ctx.deps.changed(this);
-        }
+    get loading_state(): Loading_State {
+        return this._loading_state;
     }
 
     get card_indexes(): readonly number[] {
-        return this._all_card_indexes.slice(this.pos, this.pos + this.max);
+        return this._all_card_indexes.slice(this.pos, this.pos + this.max_page_size);
+    }
+
+    get all_card_indexes(): readonly number[] {
+        return this._all_card_indexes;
+    }
+
+    async set(state: Card_List_State, execute_query?: boolean) {
+        let changed = false;
+        let execute_necessary = false;
+
+        if (state.query_string !== undefined && state.query_string != this.query_string) {
+            this._query_string = state.query_string;
+            this._query = parse_query(state.query_string);
+            changed = true;
+            execute_necessary = true;
+        }
+
+        if (state.pos !== undefined && state.pos !== this._pos) {
+            this._pos = state.pos;
+            changed = true;
+        }
+
+        if (state.sort_order !== undefined && state.sort_order !== this._sort_order) {
+            this._sort_order = state.sort_order;
+            changed = true;
+            execute_necessary = true;
+        }
+
+        if (state.sort_asc !== undefined && state.sort_asc !== this._sort_asc) {
+            this._sort_asc = state.sort_asc;
+            changed = true;
+            execute_necessary = true;
+        }
+
+        if (state.loading_state !== undefined && state.loading_state !== this._loading_state) {
+            this._loading_state = state.loading_state;
+            changed = true;
+        }
+
+        if (state.all_card_indexes !== undefined) {
+            this._all_card_indexes = state.all_card_indexes;
+            changed = true;
+        }
+
+        if (changed) {
+            this.ctx.deps.changed(this);
+        }
+
+        if (execute_query === true || (execute_query === undefined && execute_necessary)) {
+            await this.execute_query();
+        }
+    }
+
+    async execute_query() {
+        const logger = this.ctx.logger;
+        logger.group('Executing card query.');
+
+        // TODO: Cancel load underway.
+
+        this.set({ loading_state: this.loading_state === 'initial' ? 'first_load' : 'loading' });
+
+        logger.time(this.execute_query.name);
+        logger.log('query string', this.query_string);
+        logger.log('query', this.query);
+
+        const MAX_ATTEMPTS = 2;
+
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                await this.execute_query_attempt();
+                break;
+            } catch (e) {
+                if (attempt < MAX_ATTEMPTS) {
+                    logger.error('Error while finding matching cards, retrying.', e);
+                    continue;
+                } else {
+                    throw e;
+                }
+            }
+        }
+
+        this.set({ loading_state: 'success' });
+
+        logger.time_end(this.execute_query.name);
+        logger.group_end();
+    }
+
+    async execute_query_attempt() {
+        const logger = this.ctx.logger;
+        logger.time(this.execute_query_attempt.name);
+        logger.time('load');
+
+        // Fire off data loads.
+        const required_for_query_promises = this.query.props.map(prop => this.ctx.cards.load(prop));
+        const required_for_display_promises =
+            PROPS_REQUIRED_FOR_DISPLAY.map(prop => this.ctx.cards.load(prop));
+
+        const sorter_promise = this.ctx.cards.get_sorter(this.sort_order);
+
+        // Await data loads necessary for query.
+        for (const promise of required_for_query_promises) {
+            await promise;
+        }
+
+        // Await at least one display property if we have no required properties to wait for, just
+        // to get the amount of cards.
+        if (this.ctx.cards.length === null) {
+            await Promise.race(required_for_display_promises);
+        }
+
+        logger.time_end('load');
+        logger.time('query_evaluate');
+
+        const card_indexes =
+            await find_cards_matching_query(this.ctx.cards, this.query, () => Nop_Logger);
+
+        logger.time_end('query_evaluate');
+        logger.time('load_sorter');
+
+        const sorter = await sorter_promise;
+
+        logger.time_end('load_sorter');
+        logger.time('sort');
+
+        const sorted_card_indexes = sorter.sort(card_indexes, this.sort_asc);
+
+        logger.time_end('sort');
+        logger.time('load_display');
+
+        // Await data loads necessary for display.
+        for (const promise of required_for_display_promises) {
+            await promise;
+        }
+
+        this.set({ all_card_indexes: sorted_card_indexes });
+
+        logger.time_end('load_display');
+        logger.time_end(this.execute_query_attempt.name);
     }
 }
 
 class Search_State {
     private ctx: Context;
-    readonly window: Card_List_Window<Query_Card_List>;
+    readonly list: Card_List;
 
-    constructor(ctx: Context, window: Card_List_Window<Query_Card_List>) {
+    constructor(ctx: Context, list: Card_List) {
         this.ctx = ctx;
-        this.window = window;
+        this.list = list;
     }
 
-    set(state: Card_List_Window_State) {
-        this.window.set(state);
+    set(state: Card_List_State) {
+        this.list.set(state);
         // No need to await data load.
 
         const params = get_params();
-        set_params_from_card_list_window(this.window, params);
+        set_params_from_card_list(this.list, params);
     }
 
     /** Preloads properties needed for a given query string. */
     async preload(query_string: string) {
-        if (query_string !== this.window.list.query_string) {
+        if (query_string !== this.list.query_string) {
             const MAX_ATTEMPTS = 2;
 
             for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -271,18 +322,18 @@ async function init() {
 
     ctx.view.search = new Search_State(
         ctx,
-        new Card_List_Window(ctx, new Query_Card_List(ctx, SEARCH_CARD_LIST_ID)),
+        new Card_List(ctx, SEARCH_CARD_LIST_ID),
     );
 
     const params = get_params();
-    const set_state_promise = set_card_list_window_from_params(ctx, ctx.view.search.window, params);
+    const set_state_promise = set_card_list_from_params(ctx, ctx.view.search.list, params);
 
     // Initialize view right after setting state from parameters, but before awaiting the initial
     // data load.
     new Main_View(ctx, document.body);
 
     globalThis.onpopstate = () => {
-        set_card_list_window_from_params(ctx, ctx.view.search!.window, get_params());
+        set_card_list_from_params(ctx, ctx.view.search!.list, get_params());
     };
 
     await set_state_promise;
@@ -319,33 +370,29 @@ function get_params(): URLSearchParams {
     return new URLSearchParams(globalThis.location.search);
 }
 
-async function set_card_list_window_from_params(
+async function set_card_list_from_params(
     ctx: Context,
-    window: Card_List_Window,
+    list: Card_List,
     params: URLSearchParams,
 ) {
-    let new_state: Card_List_Window_State = {
+    let new_state: Card_List_State = {
         sort_order: DEFAULT_SORT_ORDER,
         sort_asc: DEFAULT_SORT_ASC,
         pos: DEFAULT_START_POS,
     };
 
-    if (window.list instanceof Query_Card_List) {
-        new_state.query_string = params.get('q') ?? DEFAULT_QUERY_STRING;
+    new_state.query_string = params.get('q') ?? DEFAULT_QUERY_STRING;
 
-        // TODO: pool
-        // const pool = params.get('p');
+    // TODO: pool
+    // const pool = params.get('p');
 
-        // if (pool !== null) {
-        //     if (pool in POOLS) {
-        //         window.list.pool = pool;
-        //     } else {
-        //         ctx.logger.error(`Invalid pool in URL: ${pool}`);
-        //     }
-        // }
-    } else {
-        unreachable();
-    }
+    // if (pool !== null) {
+    //     if (pool in POOLS) {
+    //         window.list.pool = pool;
+    //     } else {
+    //         ctx.logger.error(`Invalid pool in URL: ${pool}`);
+    //     }
+    // }
 
     const sort_order = params.get('o') as Sort_Order | null;
 
@@ -379,39 +426,37 @@ async function set_card_list_window_from_params(
         }
     }
 
-    await window.set(new_state);
+    await list.set(new_state, list.loading_state === 'initial' ? true : undefined);
 }
 
-function set_params_from_card_list_window(
-    window: Card_List_Window,
+function set_params_from_card_list(
+    list: Card_List,
     params: URLSearchParams,
 ) {
-    if (window.list instanceof Query_Card_List) {
-        if (window.list.query_string === DEFAULT_QUERY_STRING) {
-            params.delete('q');
-        } else {
-            params.set('q', window.list.query_string);
-        }
+    if (list.query_string === DEFAULT_QUERY_STRING) {
+        params.delete('q');
+    } else {
+        params.set('q', list.query_string);
     }
 
     // TODO: pool.
 
-    if (window.pos === DEFAULT_START_POS) {
+    if (list.pos === DEFAULT_START_POS) {
         params.delete('s');
     } else {
-        params.set('s', String(window.pos + 1));
+        params.set('s', String(list.pos + 1));
     }
 
-    if (window.sort_order === DEFAULT_SORT_ORDER) {
+    if (list.sort_order === DEFAULT_SORT_ORDER) {
         params.delete('o');
     } else {
-        params.set('o', window.sort_order);
+        params.set('o', list.sort_order);
     }
 
-    if (window.sort_asc === DEFAULT_SORT_ASC) {
+    if (list.sort_asc === DEFAULT_SORT_ASC) {
         params.delete('d');
     } else {
-        params.set('d', window.sort_asc ? 'a' : 'd');
+        params.set('d', list.sort_asc ? 'a' : 'd');
     }
 
     const new_search = params.size ? `?${params}` : '';
@@ -498,108 +543,6 @@ class Deps {
     }
 }
 
-async function load_card_list_window(ctx: Context, window: Card_List_Window) {
-    ctx.logger.group('Loading cards.');
-
-    // TODO: Cancel load underway.
-
-    window.list.loading_state = window.list.loading_state === 'initial' ? 'first_load' : 'loading';
-
-    ctx.logger.time(load_card_list_window.name);
-
-    if (window.list instanceof Query_Card_List) {
-        await load_query_card_list(ctx, window.list, window);
-    } else if (window.list instanceof Set_Card_List) {
-        // TODO
-        unreachable();
-    } else {
-        unreachable();
-    }
-
-    window.list.loading_state = 'success';
-
-    ctx.logger.time_end(load_card_list_window.name);
-    ctx.logger.group_end();
-}
-
-async function load_query_card_list(ctx: Context, list: Query_Card_List, window: Card_List_Window) {
-    ctx.logger.log('query string', list.query_string);
-    ctx.logger.log('query', list.query);
-
-    const MAX_ATTEMPTS = 2;
-
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        try {
-            await load_query_card_list_attempt(ctx, list, window);
-            break;
-        } catch (e) {
-            if (attempt < MAX_ATTEMPTS) {
-                ctx.logger.error('Error while finding matching cards, retrying.', e);
-                continue;
-            } else {
-                throw e;
-            }
-        }
-    }
-}
-
-async function load_query_card_list_attempt(
-    ctx: Context,
-    list: Query_Card_List,
-    window: Card_List_Window,
-) {
-    const logger = ctx.logger;
-    logger.time(load_query_card_list_attempt.name);
-    logger.time('load');
-
-    // Fire off data loads.
-    const required_for_query_promises = list.query.props.map(prop => ctx.cards.load(prop));
-    const required_for_display_promises =
-        PROPS_REQUIRED_FOR_DISPLAY.map(prop => ctx.cards.load(prop));
-
-    const sorter_promise = ctx.cards.get_sorter(window.sort_order);
-
-    // Await data loads necessary for query.
-    for (const promise of required_for_query_promises) {
-        await promise;
-    }
-
-    // Await at least one display property if we have no required properties to wait for, just to
-    // get the amount of cards.
-    if (ctx.cards.length === null) {
-        await Promise.race(required_for_display_promises);
-    }
-
-    logger.time_end('load');
-    logger.time('query_evaluate');
-
-    list.card_indexes =
-        await find_cards_matching_query(ctx.cards, list.query, () => Nop_Logger);
-
-    logger.time_end('query_evaluate');
-    logger.time('load_sorter');
-
-    const sorter = await sorter_promise;
-
-    logger.time_end('load_sorter');
-    logger.time('sort');
-
-    const window_card_indexes = sorter.sort(list.card_indexes, window.sort_asc);
-
-    logger.time_end('sort');
-    logger.time('load_display');
-
-    // Await data loads necessary for display.
-    for (const promise of required_for_display_promises) {
-        await promise;
-    }
-
-    window.all_card_indexes = window_card_indexes;
-
-    logger.time_end('load_display');
-    logger.time_end(load_query_card_list_attempt.name);
-}
-
 class Main_View {
     private ctx: Context;
     private search_view: Search_View | null = null;
@@ -645,7 +588,7 @@ class Search_View implements Dependent {
 
     constructor(ctx: Context, state: Search_State, el: HTMLElement) {
         this.state = state;
-        ctx.deps.add(this, state.window, state.window.list);
+        ctx.deps.add(this, state.list);
 
         this.query_el = get_el(el, ':scope > header .query');
         this.pool_el = get_el(el, ':scope > header .pool');
@@ -674,37 +617,37 @@ class Search_View implements Dependent {
         this.sort_order_el.onchange = () => this.sort_order_change();
         this.sort_dir_asc_el.onchange = () => this.sort_dir_change();
         this.sort_dir_desc_el.onchange = () => this.sort_dir_change();
-        this.result_prev_el.onclick = () => state.set({ pos: state.window.prev_page });
-        this.result_next_el.onclick = () => state.set({ pos: state.window.next_page });
-        this.result_first_el.onclick = () => state.set({ pos: state.window.first_page });
-        this.result_last_el.onclick = () => state.set({ pos: state.window.last_page });
+        this.result_prev_el.onclick = () => state.set({ pos: state.list.prev_page });
+        this.result_next_el.onclick = () => state.set({ pos: state.list.next_page });
+        this.result_first_el.onclick = () => state.set({ pos: state.list.first_page });
+        this.result_last_el.onclick = () => state.set({ pos: state.list.last_page });
 
         this.update();
 
         new Card_List_View(
             ctx,
-            state.window,
+            state.list,
             get_el<HTMLDivElement>(el, ':scope > .result'),
         );
     }
 
     update() {
-        const window = this.state.window;
+        const list = this.state.list;
 
         // We don't want to overwrite the user's input if the query string didn't change.
-        if (window.list.query_string !== this.prev_query_string) {
-            this.query_el.value = window.list.query_string;
-            this.prev_query_string = window.list.query_string;
+        if (list.query_string !== this.prev_query_string) {
+            this.query_el.value = list.query_string;
+            this.prev_query_string = list.query_string;
         }
 
-        this.sort_order_el.value = window.sort_order;
-        (window.sort_asc ? this.sort_dir_asc_el : this.sort_dir_desc_el).checked = true;
+        this.sort_order_el.value = list.sort_order;
+        (list.sort_asc ? this.sort_dir_asc_el : this.sort_dir_desc_el).checked = true;
 
         let summary: string;
 
-        switch (window.list.loading_state) {
-            // Avoid showing "Loading..." when the user opens the app, as it makes you think you
-            // can't filter cards yet.
+        switch (list.loading_state) {
+            // Avoid showing "Loading..." right under the query field when the user opens the app,
+            // as it makes you think you can't filter cards yet.
             case 'initial':
             case 'first_load':
                 summary = '';
@@ -714,9 +657,9 @@ class Search_View implements Dependent {
                 break;
             case 'success':
                 summary =
-                    window.list.size === 0
+                    list.size === 0
                         ? 'No matches.'
-                        : `Showing ${window.pos + 1}-${window.pos + window.size} of ${window.list.size} matches.`;
+                        : `Showing ${list.pos + 1}-${list.pos + list.page_size} of ${list.size} matches.`;
                 break;
             default:
                 unreachable();
@@ -724,8 +667,8 @@ class Search_View implements Dependent {
 
         this.result_summary_el.innerText = summary;
 
-        const at_first_page = window.pos === window.first_page;
-        const at_last_page = window.pos >= window.last_page;
+        const at_first_page = list.pos === list.first_page;
+        const at_last_page = list.pos >= list.last_page;
         this.result_prev_el.disabled = at_first_page;
         this.result_next_el.disabled = at_last_page;
         this.result_first_el.disabled = at_first_page;
@@ -787,15 +730,15 @@ class Search_View implements Dependent {
 
 class Card_List_View implements Dependent {
     private ctx: Context;
-    private window: Card_List_Window;
+    private list: Card_List;
     private loading_el: HTMLElement;
     private cards_el: HTMLElement;
     readonly el: HTMLElement;
 
-    constructor(ctx: Context, window: Card_List_Window, el?: HTMLDivElement) {
+    constructor(ctx: Context, list: Card_List, el?: HTMLDivElement) {
         this.ctx = ctx;
-        this.window = window;
-        ctx.deps.add(this, window);
+        this.list = list;
+        ctx.deps.add(this, list);
 
         this.el = el ?? create_el('div');
         this.el.className = 'result';
@@ -809,8 +752,8 @@ class Card_List_View implements Dependent {
     }
 
     update() {
-        const list = this.window.list;
-        const loading = list.loading_state === 'initial' || list.loading_state === 'first_load';
+        const loading =
+            this.list.loading_state === 'initial' || this.list.loading_state === 'first_load';
 
         this.loading_el.hidden = !loading;
         this.cards_el.hidden = loading;
@@ -819,7 +762,7 @@ class Card_List_View implements Dependent {
             const cards = this.ctx.cards;
             const frag = document.createDocumentFragment();
 
-            for (const card_index of this.window.card_indexes) {
+            for (const card_index of this.list.card_indexes) {
                 const div = create_el('div');
                 div.className = 'card_wrapper';
 
