@@ -157,14 +157,24 @@ class Out_Of_Date_Error extends Error {
 }
 
 export class Cards {
-    length: number | null = null;
-    props: Map<Prop, any> = new Map;
-    prop_promises: Map<Prop, Promise<void>> = new Map;
-    sorters: Map<Sort_Order, Promise<Sorter>> = new Map;
-    creation_time: Date | null = null;
-    aborter = new AbortController;
-    fetch_with_cache_reload = false;
-    last_clear: number = performance.now();
+    private _length: number | null = null;
+    private props: Map<Prop, any> = new Map;
+    private prop_promises: Map<Prop, Promise<void>> = new Map;
+    private sorters: Map<Sort_Order, Promise<Sorter>> = new Map;
+    private creation_time: Date | null = null;
+    private aborter = new AbortController;
+    private fetch_with_cache_reload = false;
+    private last_clear: number = performance.now();
+
+    get length(): number | null {
+        return this._length;
+    }
+
+    get load_promise(): Promise<void> {
+        return Promise.allSettled(
+            [...this.prop_promises.values(), ...this.sorters.values()]
+        ) as unknown as Promise<void>;
+    }
 
     data_is_out_of_date() {
         const now = performance.now();
@@ -176,7 +186,7 @@ export class Cards {
             this.aborter = new AbortController;
 
             // Clear all data.
-            this.length = null;
+            this._length = null;
             this.props.clear();
             this.prop_promises.clear();
             this.sorters.clear();
@@ -346,7 +356,7 @@ export class Cards {
                 }
 
                 this.props.set(prop, data);
-                this.length = data.length;
+                this._length = data.length;
             });
 
             this.prop_promises.set(prop, promise);

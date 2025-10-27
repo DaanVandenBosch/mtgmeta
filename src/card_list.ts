@@ -1,46 +1,16 @@
+import { assert, Nop_Logger } from "./core";
 import { SORT_ORDERS, type Sort_Order } from "./cards";
-import { assert, get_params, Nop_Logger, string_to_int } from "./core";
-import type { Context } from "./data";
 import { combine_queries_with_conjunction, parse_query, type Query } from "./query";
 import { find_cards_matching_query, PROPS_REQUIRED_FOR_DISPLAY } from "./query_eval";
-const freeze = Object.freeze;
+import { POOL_ALL, POOLS } from "./pool";
+import type { Context } from "./context";
 
-const POOL_ALL = 'all';
-const POOL_PREMODERN_PAUPER = 'pmp';
-const POOL_PREMODERN_PAUPER_COMMANDER = 'pmpc';
-const POOL_PREMODERN_PEASANT = 'pmpst';
-const POOL_PREMODERN_PEASANT_COMMANDER = 'pmpstc';
-const POOL_MODERN_PAUPER = 'mp';
-const POOL_MODERN_PAUPER_COMMANDER = 'mpc';
-
-const POOLS: { readonly [K: string]: Query } = freeze({
-    [POOL_ALL]: parse_query(''),
-    [POOL_PREMODERN_PAUPER]: parse_query(
-        'date<2003-07-29 rarity:common'
-    ),
-    [POOL_PREMODERN_PAUPER_COMMANDER]: parse_query(
-        'date<2003-07-29 rarity:uncommon type:creature'
-    ),
-    [POOL_PREMODERN_PEASANT]: parse_query(
-        'date<2003-07-29 rarity<=uncommon -"Library of Alexandria" -"Strip Mine" -"Wasteland" -"Maze of Ith" -"Sol Ring"'
-    ),
-    [POOL_PREMODERN_PEASANT_COMMANDER]: parse_query(
-        'date<2003-07-29 rarity:rare type:creature'
-    ),
-    [POOL_MODERN_PAUPER]: parse_query(
-        'date>=2003-07-29 date<2014-07-18 rarity:common -"Rhystic Study"'
-    ),
-    [POOL_MODERN_PAUPER_COMMANDER]: parse_query(
-        'date>=2003-07-29 date<2014-07-18 rarity:uncommon type:creature'
-    ),
-});
-
-const DEFAULT_QUERY_STRING = '';
+export const DEFAULT_QUERY_STRING = '';
 const DEFAULT_QUERY: Query = parse_query(DEFAULT_QUERY_STRING);
-const DEFAULT_POOL: string = POOL_ALL;
-const DEFAULT_SORT_ORDER: Sort_Order = 'name';
-const DEFAULT_SORT_ASC = true;
-const DEFAULT_START_POS = 0;
+export const DEFAULT_POOL: string = POOL_ALL;
+export const DEFAULT_SORT_ORDER: Sort_Order = 'name';
+export const DEFAULT_SORT_ASC = true;
+export const DEFAULT_START_POS = 0;
 
 type Loading_State = 'initial' | 'first_load' | 'loading' | 'success';
 
@@ -57,14 +27,14 @@ export type Card_List_State = {
 export class Card_List {
     static readonly MAX_LOAD_ATTEMPTS = 2;
 
-    protected ctx: Context;
+    private ctx: Context;
     readonly id: number;
     private _query_string: string = DEFAULT_QUERY_STRING;
     private _base_query: Query = DEFAULT_QUERY;
     private _pool: string = DEFAULT_POOL;
     private _pool_query: Query = POOLS[DEFAULT_POOL];
     private _query: Query = DEFAULT_QUERY;
-    private _pos: number = 0;
+    private _pos: number = DEFAULT_START_POS;
     readonly max_page_size: number = 120;
     private _sort_order: Sort_Order = DEFAULT_SORT_ORDER;
     private _sort_asc: boolean = DEFAULT_SORT_ASC;
@@ -201,102 +171,6 @@ export class Card_List {
 
         if (execute_query === true || (execute_query === undefined && execute_necessary)) {
             await this.execute_query();
-        }
-    }
-
-    async set_from_params() {
-        const params = get_params();
-
-        let new_state: Card_List_State = {
-            sort_order: DEFAULT_SORT_ORDER,
-            sort_asc: DEFAULT_SORT_ASC,
-            pos: DEFAULT_START_POS,
-        };
-
-        new_state.query_string = params.get('q') ?? DEFAULT_QUERY_STRING;
-
-        const pool = params.get('p');
-
-        if (pool !== null) {
-            if (pool in POOLS) {
-                new_state.pool = pool;
-            } else {
-                this.ctx.logger.error(`Invalid pool in URL: ${pool}`);
-            }
-        }
-
-        const sort_order = params.get('o') as Sort_Order | null;
-
-        if (sort_order !== null) {
-            if (SORT_ORDERS.includes(sort_order)) {
-                new_state.sort_order = sort_order;
-            } else {
-                this.ctx.logger.error(`Invalid sort order in URL: ${sort_order}`);
-            }
-        }
-
-        const sort_dir = params.get('d');
-
-        if (sort_dir !== null) {
-            if (sort_dir === 'a' || sort_dir === 'd') {
-                new_state.sort_asc = sort_dir === 'a';
-            } else {
-                this.ctx.logger.error(`Invalid sort direction in URL: ${sort_dir}`);
-            }
-        }
-
-        const pos = params.get('s');
-
-        if (pos !== null) {
-            const pos_int = string_to_int(pos);
-
-            if (pos_int !== null && pos_int >= 1) {
-                new_state.pos = pos_int - 1;
-            } else {
-                this.ctx.logger.error(`Invalid start position in URL: ${pos}`);
-            }
-        }
-
-        await this.set(new_state, this.loading_state === 'initial' ? true : undefined);
-    }
-
-    set_params() {
-        const params = get_params();
-
-        if (this.query_string === DEFAULT_QUERY_STRING) {
-            params.delete('q');
-        } else {
-            params.set('q', this.query_string);
-        }
-
-        if (this.pool === DEFAULT_POOL) {
-            params.delete('p');
-        } else {
-            params.set('p', this.pool);
-        }
-
-        if (this.pos === DEFAULT_START_POS) {
-            params.delete('s');
-        } else {
-            params.set('s', String(this.pos + 1));
-        }
-
-        if (this.sort_order === DEFAULT_SORT_ORDER) {
-            params.delete('o');
-        } else {
-            params.set('o', this.sort_order);
-        }
-
-        if (this.sort_asc === DEFAULT_SORT_ASC) {
-            params.delete('d');
-        } else {
-            params.set('d', this.sort_asc ? 'a' : 'd');
-        }
-
-        const new_search = params.size ? `?${params}` : '';
-
-        if (globalThis.location.search !== new_search) {
-            globalThis.history.pushState(null, '', `/${new_search}`);
         }
     }
 

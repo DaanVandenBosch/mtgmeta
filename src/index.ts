@@ -1,29 +1,19 @@
-import { run_benchmarks } from "./benchmarks";
-import { Console_Logger, get_params } from "./core";
+import { get_params } from "./core";
+import { Application } from "./application";
+import { Application_View } from "./application_view";
 import { run_test_suite } from "./tests";
-import { Context } from "./data";
-import { Main_View } from "./main_view";
+import { run_benchmarks } from "./benchmarks";
+import { Context } from "./context";
 
 async function init() {
-    Console_Logger.time('init');
-    const ctx = new Context(Console_Logger);
+    const ctx = new Context;
+    ctx.logger.time('init');
 
-    const data_load_promise =
-        ctx.view.search === null ? Promise.resolve() : ctx.view.search.list.set_from_params();
+    const app = new Application(ctx);
+    new Application_View(ctx, app, document.body);
+    await ctx.cards.load_promise;
 
-    // Initialize view right after setting state from parameters, but before awaiting the initial
-    // data load.
-    new Main_View(ctx, document.body);
-
-    globalThis.onpopstate = () => {
-        if (ctx.view.search) {
-            ctx.view.search.list.set_from_params();
-        }
-    };
-
-    await data_load_promise;
-
-    Console_Logger.time_end('init');
+    ctx.logger.time_end('init');
 
     // Run tests and benchmarks if requested.
     const params = get_params();

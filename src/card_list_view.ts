@@ -1,8 +1,7 @@
-import { key_combo } from "./core";
-import type { Card_List } from "./card_list";
-import { create_el, unreachable } from "./core";
-import type { Context } from "./data";
+import { create_el, unreachable, key_combo } from "./core";
 import type { Dependent } from "./deps";
+import type { Card_List } from "./card_list";
+import type { Context } from "./context";
 
 export class Card_List_View implements Dependent {
     private ctx: Context;
@@ -40,6 +39,7 @@ export class Card_List_View implements Dependent {
     }
 
     update() {
+        const had_focus = this.el.contains(document.activeElement);
         const loading =
             this.list.loading_state === 'initial' || this.list.loading_state === 'first_load';
 
@@ -75,6 +75,10 @@ export class Card_List_View implements Dependent {
 
             this.cards_el.replaceChildren(frag);
             this.el.scrollTo(0, 0);
+
+            if (had_focus) {
+                this.focus();
+            }
         }
     }
 
@@ -84,6 +88,25 @@ export class Card_List_View implements Dependent {
 
     private keydown(e: KeyboardEvent) {
         switch (key_combo(e)) {
+            case 'Home': {
+                e.preventDefault();
+                e.stopPropagation();
+                const new_card_el = this.cards_el.children[0].children[0] as HTMLElement;
+                new_card_el.scrollIntoView({ block: 'nearest' });
+                new_card_el.focus();
+                break;
+            }
+            case 'End': {
+                e.preventDefault();
+                e.stopPropagation();
+                const new_card_el =
+                    this.cards_el
+                        .children[this.cards_el.children.length - 1]
+                        .children[0] as HTMLElement;
+                new_card_el.scrollIntoView({ block: 'nearest' });
+                new_card_el.focus();
+                break;
+            }
             case 'ArrowDown': {
                 e.preventDefault();
                 e.stopPropagation();
@@ -106,6 +129,18 @@ export class Card_List_View implements Dependent {
                 e.preventDefault();
                 e.stopPropagation();
                 this.move_card_focus('right');
+                break;
+            }
+            case 'p': {
+                e.preventDefault();
+                e.stopPropagation();
+                this.list.set({ pos: this.list.prev_page });
+                break;
+            }
+            case 'n': {
+                e.preventDefault();
+                e.stopPropagation();
+                this.list.set({ pos: this.list.next_page });
                 break;
             }
         }
@@ -169,9 +204,12 @@ export class Card_List_View implements Dependent {
                     // would mean we would move to the left. This way you'll see all the cards by
                     // pressing down continuously.
                     if (old_idx + 1 < len) {
-                        new_card_el = children[len - 1].children[0] as HTMLElement;
-                        break outer;
+                        const next_card_el = children[len - 1].children[0] as HTMLElement;
 
+                        if (next_card_el.offsetTop > card_el.offsetTop + card_el.offsetHeight) {
+                            new_card_el = next_card_el;
+                            break outer;
+                        }
                     }
 
                     return;
