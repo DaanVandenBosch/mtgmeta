@@ -5,7 +5,8 @@
   "scripts": {
     "preprocess": "bun preprocess_data.ts",
     "dev": "bun dev_server.ts",
-    "build-prod": "bun build.ts"
+    "build-prod": "bun build.ts",
+    "prod": "bun prod_server.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

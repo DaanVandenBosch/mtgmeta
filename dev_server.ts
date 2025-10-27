@@ -23,7 +23,7 @@ const server = Bun.serve({
         };
 
         if (path === '/') {
-            data = Bun.file('src/index.html')
+            data = Bun.file('static/index.html')
             headers['Content-Type'] = 'text/html';
         } else if (path.startsWith('/data/')) {
             data = Bun.file('.' + path);
@@ -48,10 +48,10 @@ const server = Bun.serve({
             }
 
             if (ts) {
-                const file_content = await Bun.file('src' + path + '.ts').text();
-                data = await transpiler.transform(file_content);
+                const file_content = await Bun.file('src' + path + '.ts').arrayBuffer();
+                data = await transpiler.transform(file_content, 'ts');
             } else {
-                data = Bun.file('src' + path);
+                data = Bun.file('static' + path);
             }
         }
 
