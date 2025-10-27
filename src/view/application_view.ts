@@ -1,6 +1,6 @@
-import type { Context } from "./context";
-import { unreachable } from "./core";
-import type { Application } from "./application";
+import type { Context } from "../context";
+import { unreachable } from "../core";
+import type { Application } from "../application";
 import { Search_View } from "./search_view";
 
 export class Application_View {

@@ -5,14 +5,14 @@ import {
     DEFAULT_SORT_ORDER,
     DEFAULT_START_POS,
     type Card_List_State,
-} from "./card_list";
+} from "../card_list";
 import { Card_List_View } from "./card_list_view";
-import { SORT_ORDERS, type Sort_Order } from "./cards";
-import type { Context } from "./context";
-import { get_el, unreachable, key_combo, assert, get_params, string_to_int } from "./core";
-import type { Dependent } from "./deps";
-import { POOLS } from "./pool";
-import type { Search } from "./search";
+import { SORT_ORDERS, type Sort_Order } from "../cards";
+import type { Context } from "../context";
+import { get_el, unreachable, key_combo, assert, get_params, string_to_int } from "../core";
+import type { Dependent } from "../deps";
+import { POOLS } from "../pool";
+import type { Search } from "../search";
 
 export class Search_View implements Dependent {
     private ctx: Context;

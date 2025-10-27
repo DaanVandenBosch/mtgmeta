@@ -1,6 +1,6 @@
 import { get_params } from "./core";
 import { Application } from "./application";
-import { Application_View } from "./application_view";
+import { Application_View } from "./view/application_view";
 import { run_test_suite } from "./tests";
 import { run_benchmarks } from "./benchmarks";
 import { Context } from "./context";

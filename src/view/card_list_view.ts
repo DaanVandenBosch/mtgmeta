@@ -1,7 +1,7 @@
-import { create_el, unreachable, key_combo } from "./core";
-import type { Dependent } from "./deps";
-import type { Card_List } from "./card_list";
-import type { Context } from "./context";
+import { create_el, unreachable, key_combo } from "../core";
+import type { Dependent } from "../deps";
+import type { Card_List } from "../card_list";
+import type { Context } from "../context";
 
 export class Card_List_View implements Dependent {
     private ctx: Context;
