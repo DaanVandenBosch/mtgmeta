@@ -134,6 +134,12 @@ export class Search_View implements Dependent {
     }
 
     private keydown(e: KeyboardEvent) {
+        const el = document.activeElement;
+
+        if (el && el.tagName === 'INPUT' && (el as HTMLInputElement).type === 'text') {
+            return;
+        }
+
         switch (key_combo(e)) {
             case 'f':
             case '/':
