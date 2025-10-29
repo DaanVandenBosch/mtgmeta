@@ -1,17 +1,22 @@
 import { Console_Logger, Nop_Logger, time_to_string } from "./core";
-import { parse_query, PROPS } from "./query";
+import { PROPS } from "./query";
+import { parse_query } from "./query_parsing";
 import { Query_Evaluator } from "./query_eval";
 import type { Cards } from "./cards";
+import { Subset_Store } from "./subset";
 
 export async function run_benchmarks(cards: Cards) {
+    const subset_store = new Subset_Store;
     const benchmarks: { name: string, set_up: () => any, execute: (input: any) => number }[] = [];
 
     function benchmark<T>(name: string, set_up: () => T, execute: (input: T) => number) {
         benchmarks.push({ name, set_up, execute });
     }
 
-    const query =
-        parse_query('year>=2000 date>=2003-07-29 date<2014-07-18 rarity:uncommon type:creature');
+    const query = parse_query(
+        subset_store.name_to_subset,
+        'year>=2000 date>=2003-07-29 date<2014-07-18 rarity:uncommon type:creature',
+    );
 
     function query_evaluator_benchmark(
         name: string,
@@ -22,6 +27,7 @@ export async function run_benchmarks(cards: Cards) {
             name,
             () => new Query_Evaluator(
                 cards,
+                subset_store,
                 query,
                 bitset,
                 small_set_optimization,

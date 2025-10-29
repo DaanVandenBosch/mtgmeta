@@ -1,5 +1,5 @@
-import { get_params } from "./core";
-import { Application } from "./application";
+import { get_el, get_params } from "./core";
+import { Application_Model } from "./model/application_model";
 import { Application_View } from "./view/application_view";
 import { run_test_suite } from "./tests";
 import { run_benchmarks } from "./benchmarks";
@@ -9,8 +9,8 @@ async function init() {
     const ctx = new Context;
     ctx.logger.time('init');
 
-    const app = new Application(ctx);
-    new Application_View(ctx, app, document.body);
+    const app = new Application_Model(ctx);
+    new Application_View(ctx, app, get_el(document, '.application'));
     await ctx.cards.load_promise;
 
     ctx.logger.time_end('init');

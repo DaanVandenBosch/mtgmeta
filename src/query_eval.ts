@@ -17,8 +17,11 @@ import {
     RARITY_MYTHIC,
     RARITY_SPECIAL,
     RARITY_BONUS,
+    type Rarity,
+    type Property_Condition,
 } from './query';
-import { Cards, type Sort_Order } from './cards';
+import { Cards } from './cards';
+import type { Subset_Store } from './subset';
 const freeze = Object.freeze;
 
 export const PROPS_REQUIRED_FOR_DISPLAY: readonly Prop[] = freeze(['sfurl', 'img', 'landscape']);
@@ -32,71 +35,21 @@ const RARITY_RANK = freeze({
     [RARITY_BONUS]: 5,
 });
 
-export async function find_cards_matching_query_old(
-    cards: Cards,
-    query: Query,
-    sort_order: Sort_Order,
-    sort_asc: boolean,
-    logger: Logger,
-    card_logger: (idx: number) => Logger,
-): Promise<number[]> {
-    logger.time('find_cards_matching_query');
-    logger.log('query', query);
-    logger.time('find_cards_matching_query_load');
-
-    // Fire off data loads.
-    const required_for_query_promises = query.props.map(prop => cards.load(prop));
-    const required_for_display_promises = PROPS_REQUIRED_FOR_DISPLAY.map(prop => cards.load(prop));
-    const sorter_promise = cards.get_sorter(sort_order);
-
-    // Await data loads necessary for query.
-    for (const promise of required_for_query_promises) {
-        await promise;
-    }
-
-    // Await at least one display property if we have no required properties to wait for, just to
-    // get the amount of cards.
-    if (cards.length === null) {
-        await Promise.race(required_for_display_promises);
-    }
-
-    logger.time_end('find_cards_matching_query_load');
-    logger.time('find_cards_matching_query_evaluate');
-
-    const matching_cards = await find_cards_matching_query(cards, query, card_logger);
-
-    logger.time_end('find_cards_matching_query_evaluate');
-    logger.time('find_cards_matching_query_load_sorter');
-
-    const sorter = await sorter_promise;
-
-    logger.time_end('find_cards_matching_query_load_sorter');
-    logger.time('find_cards_matching_query_sort');
-
-    const result = sorter.sort(matching_cards, sort_asc);
-
-    logger.time_end('find_cards_matching_query_sort');
-    logger.time('find_cards_matching_query_load_display');
-
-    // Await data loads necessary for display.
-    for (const promise of required_for_display_promises) {
-        await promise;
-    }
-
-    logger.time_end('find_cards_matching_query_load_display');
-    logger.time_end('find_cards_matching_query');
-
-    return result;
+enum Uint_Set_Type {
+    BIT32,
+    BIT,
+    ARRAY,
 }
 
 export async function find_cards_matching_query(
     cards: Cards,
+    subset_store: Subset_Store,
     query: Query,
     card_logger: (idx: number) => Logger,
 ): Promise<Map<number, number>> {
     assert(cards.length !== null);
 
-    const evaluator = new Query_Evaluator(cards, query, true, true);
+    const evaluator = new Query_Evaluator(cards, subset_store, query, true, true);
     const matching_cards = new Map<number, number>();
 
     for (let card_idx = 0; card_idx < cards.length; card_idx++) {
@@ -120,14 +73,22 @@ export async function find_cards_matching_query(
 
 export class Query_Evaluator {
     private readonly cards: Cards;
+    private readonly subset_store: Subset_Store;
     private readonly query: Query;
     private readonly bitset: boolean;
     private readonly small_set_optimization: boolean;
     private card_idx: number = 0;
     private logger: Logger = Nop_Logger;
 
-    constructor(cards: Cards, query: Query, bitset: boolean, small_set_optimization: boolean) {
+    constructor(
+        cards: Cards,
+        subset_store: Subset_Store,
+        query: Query,
+        bitset: boolean,
+        small_set_optimization: boolean,
+    ) {
         this.cards = cards;
+        this.subset_store = subset_store;
         this.query = query;
         this.bitset = bitset;
         this.small_set_optimization = small_set_optimization;
@@ -145,22 +106,22 @@ export class Query_Evaluator {
         }
 
         let version_idxs;
-        let set_type;
+        let set_type: Uint_Set_Type;
 
         if (this.small_set_optimization && version_count <= 32) {
             version_idxs = Bitset_32.with_cap(version_count);
             version_idxs.fill();
-            set_type = 0;
+            set_type = Uint_Set_Type.BIT32;
         } else if (this.bitset) {
             Bitset.reset_mem();
             version_idxs = Bitset.with_cap(version_count);
             version_idxs.fill();
-            set_type = 1;
+            set_type = Uint_Set_Type.BIT;
         } else {
             Array_Set.reset_mem();
             version_idxs = new Array_Set();
             version_idxs.fill_to(version_count);
-            set_type = 2;
+            set_type = Uint_Set_Type.ARRAY;
         }
 
         this.evaluate_condition(this.query.condition, version_idxs, set_type);
@@ -168,7 +129,11 @@ export class Query_Evaluator {
         return version_idxs;
     }
 
-    private evaluate_condition(condition: Condition, version_idxs: Uint_Set, set_type: number) {
+    private evaluate_condition(
+        condition: Condition,
+        version_idxs: Uint_Set,
+        set_type: Uint_Set_Type,
+    ) {
         this.logger.group(condition.type, condition);
 
         switch (condition.type) {
@@ -213,21 +178,35 @@ export class Query_Evaluator {
                 version_idxs.diff(sub_idxs);
                 break;
             }
+            case 'subset': {
+                const subset = this.subset_store.get(condition.id);
+
+                if (subset === null) {
+                    this.logger.error(
+                        `Subset condition references nonexistent ID ${condition.id}.`,
+                    );
+                    version_idxs.clear();
+                } else {
+                    this.evaluate_condition(subset.query.condition, version_idxs, set_type);
+                }
+
+                break;
+            }
             default: {
                 switch (set_type) {
-                    case 0:
+                    case Uint_Set_Type.BIT32:
                         this.evaluate_property_condition_bitset_32(
                             condition,
                             version_idxs as Bitset_32,
                         );
                         break;
-                    case 1:
+                    case Uint_Set_Type.BIT:
                         this.evaluate_property_condition_bitset(
                             condition,
                             version_idxs as Bitset,
                         );
                         break;
-                    case 2:
+                    case Uint_Set_Type.ARRAY:
                         this.evaluate_property_condition_array_set(
                             condition,
                             version_idxs as Array_Set,
@@ -249,7 +228,7 @@ export class Query_Evaluator {
     }
 
     private evaluate_property_condition_bitset_32(
-        condition: Comparison_Condition | Substring_Condition | Predicate_Condition | Range_Condition,
+        condition: Property_Condition,
         version_idxs: Bitset_32,
     ) {
         if (PER_VERSION_PROPS.includes(condition.prop)) {
@@ -278,7 +257,7 @@ export class Query_Evaluator {
     }
 
     private evaluate_property_condition_bitset(
-        condition: Comparison_Condition | Substring_Condition | Predicate_Condition | Range_Condition,
+        condition: Property_Condition,
         version_idxs: Bitset,
     ) {
         if (PER_VERSION_PROPS.includes(condition.prop)) {
@@ -319,7 +298,7 @@ export class Query_Evaluator {
     }
 
     private evaluate_property_condition_array_set(
-        condition: Comparison_Condition | Substring_Condition | Predicate_Condition | Range_Condition,
+        condition: Property_Condition,
         version_idxs: Array_Set,
     ) {
         if (PER_VERSION_PROPS.includes(condition.prop)) {
@@ -337,64 +316,18 @@ export class Query_Evaluator {
     }
 
     private evaluate_property_condition_with_version(
-        condition: Comparison_Condition | Substring_Condition | Predicate_Condition | Range_Condition,
+        condition: Property_Condition,
         version_idx: number,
     ): boolean {
         let values: any = this.cards.get_for_version(this.card_idx, version_idx, condition.prop);
-
-        if (!Array.isArray(values)) {
-            values = [values];
-        }
-
         this.logger.log('values', values);
 
-        const is_color_or_id = condition.prop === 'colors' || condition.prop === 'identity';
+        const compare = get_compare(condition, this.logger);
 
-        if (is_color_or_id && typeof (condition as Comparison_Condition).value === 'number') {
-            const cond_value = (condition as Comparison_Condition).value as number;
-
-            for (const value of values) {
-                // Ignore non-existent values.
-                if (value === null) {
-                    continue;
-                }
-
-                const count = Object.keys(value).length;
-                let result;
-
-                switch (condition.type) {
-                    case 'eq':
-                        result = count === cond_value;
-                        break;
-                    case 'ne':
-                        result = count !== cond_value;
-                        break;
-                    case 'gt':
-                        result = count > cond_value;
-                        break;
-                    case 'lt':
-                        result = count < cond_value;
-                        break;
-                    case 'ge':
-                        result = count >= cond_value;
-                        break;
-                    case 'le':
-                        result = count <= cond_value;
-                        break;
-                    default:
-                        unreachable(
-                            `Invalid condition type "${condition.type}" for property "${condition.prop}".`
-                        );
-                }
-
-                if (result) {
-                    return true;
-                }
-            }
-
-            return false;
-        } else if (is_color_or_id || condition.prop === 'cost') {
-            const cond_value = (condition as Comparison_Condition).value as Mana_Cost;
+        if (Array.isArray(values)) {
+            // We return true as soon as a value is found for which the compare function returns
+            // true, except when the condition is of type "ne".
+            const sentinel = condition.type !== 'ne';
 
             for (const value of values) {
                 // Ignore non-existent values.
@@ -402,121 +335,190 @@ export class Query_Evaluator {
                     continue;
                 }
 
-                let result;
+                const result = compare(value, condition);
 
-                switch (condition.type) {
-                    case 'eq':
-                        result = mana_cost_eq(value, cond_value, this.logger);
-                        break;
-                    case 'ne':
-                        result = !mana_cost_eq(value, cond_value, this.logger);
-                        break;
-                    case 'gt':
-                        result = mana_cost_is_super_set(value, cond_value, true, this.logger);
-                        break;
-                    case 'lt':
-                        result = mana_cost_is_super_set(cond_value, value, true, this.logger);
-                        break;
-                    case 'ge':
-                        result = mana_cost_is_super_set(value, cond_value, false, this.logger);
-                        break;
-                    case 'le':
-                        result = mana_cost_is_super_set(cond_value, value, false, this.logger);
-                        break;
-                    default:
-                        unreachable(
-                            `Invalid condition type "${condition.type}" for property "${condition.prop}".`
-                        );
-                }
-
-                if (result) {
-                    return true;
+                if (result === sentinel) {
+                    return sentinel;
                 }
             }
 
-            return false;
+            return !sentinel;
         } else {
-            let eq: (a: any, b: any) => boolean = (a, b) => a === b;
-            let compare: (a: any, b: any) => number = (a, b) => a - b;
+            return compare(values, condition);
+        }
+    }
+}
 
-            if (condition.prop === 'rarity') {
-                compare = (a, b) => (RARITY_RANK as any)[a] - (RARITY_RANK as any)[b];
-            } else if (condition.prop === 'released_at') {
-                eq = (a, b) => a - b === 0
+function get_compare(
+    condition: Property_Condition,
+    logger: Logger,
+): (value: any, cond: Property_Condition) => boolean {
+    return get_compare_helper(condition, logger);
+}
+
+function get_compare_helper(
+    condition: Property_Condition,
+    logger: Logger,
+): any {
+    switch (condition.type) {
+        case 'even':
+            return (value: number, _cond: Predicate_Condition) => value % 2 === 0;
+        case 'odd':
+            return (value: number, _cond: Predicate_Condition) => value % 2 !== 0;
+        case 'substring':
+            return (value: string, cond: Substring_Condition) => value.includes(cond.value);
+        case 'range': {
+            return (value: any, cond: Range_Condition) => {
+                // Can't use === because it doesn't work as expected with Date objects.
+                return (cond.start_inc ? !(value < cond.start) : value > cond.start)
+                    && (cond.end_inc ? !(value > cond.end) : value < cond.end);
             }
+        }
+    }
 
-            for (const value of values) {
-                // Ignore non-existent values.
-                if (value === null) {
-                    continue;
-                }
-
-                let result;
-
+    switch (condition.prop) {
+        case 'colors':
+        case 'cost':
+        case 'identity': {
+            if (condition.prop !== 'cost' && typeof condition.value === 'number') {
                 switch (condition.type) {
                     case 'eq':
-                        result = eq(value, condition.value);
-                        break;
+                        return (value: Mana_Cost, cond: Comparison_Condition) => {
+                            return Object.keys(value).length === (cond.value as number);
+                        }
                     case 'ne':
-                        result = !eq(value, condition.value);
-                        break;
+                        return (value: Mana_Cost, cond: Comparison_Condition) => {
+                            return Object.keys(value).length !== (cond.value as number);
+                        }
                     case 'gt':
-                        result = compare(value, condition.value) > 0;
-                        break;
+                        return (value: Mana_Cost, cond: Comparison_Condition) => {
+                            return Object.keys(value).length > (cond.value as number);
+                        }
                     case 'lt':
-                        result = compare(value, condition.value) < 0;
-                        break;
+                        return (value: Mana_Cost, cond: Comparison_Condition) => {
+                            return Object.keys(value).length < (cond.value as number);
+                        }
                     case 'ge':
-                        result = compare(value, condition.value) >= 0;
-                        break;
+                        return (value: Mana_Cost, cond: Comparison_Condition) => {
+                            return Object.keys(value).length >= (cond.value as number);
+                        }
                     case 'le':
-                        result = compare(value, condition.value) <= 0;
-                        break;
-                    case 'even':
-                        result = value % 2 === 0;
-                        break;
-                    case 'odd':
-                        result = value % 2 !== 0;
-                        break;
-                    case 'substring':
-                        result = value.includes(condition.value);
-                        break;
-                    case 'range': {
-                        const start_compare = compare(value, condition.start);
-
-                        if (start_compare < 0) {
-                            result = false;
-                            break;
+                        return (value: Mana_Cost, cond: Comparison_Condition) => {
+                            return Object.keys(value).length <= (cond.value as number);
                         }
-
-                        const end_compare = compare(value, condition.end);
-
-                        if (end_compare > 0) {
-                            result = false;
-                            break;
-                        }
-
-                        result = (start_compare > 0 || condition.start_inc)
-                            && (end_compare < 0 || condition.end_inc);
-
-                        break;
-                    }
-                    default:
-                        unreachable(`Invalid condition type "${(condition as Condition).type}".`);
                 }
-
-                if (condition.type === 'ne') {
-                    if (!result) {
-                        return false;
-                    }
-                } else {
-                    if (result) {
-                        return true;
-                    }
+            } else {
+                switch (condition.type) {
+                    case 'eq':
+                        return (value: Mana_Cost, cond: Comparison_Condition) => {
+                            return mana_cost_eq(value, cond.value as Mana_Cost, logger);
+                        }
+                    case 'ne':
+                        return (value: Mana_Cost, cond: Comparison_Condition) => {
+                            return !mana_cost_eq(value, cond.value as Mana_Cost, logger);
+                        }
+                    case 'gt':
+                        return (value: Mana_Cost, cond: Comparison_Condition) => {
+                            return mana_cost_is_super_set(value, cond.value as Mana_Cost, true, logger);
+                        }
+                    case 'lt':
+                        return (value: Mana_Cost, cond: Comparison_Condition) => {
+                            return mana_cost_is_super_set(cond.value as Mana_Cost, value, true, logger);
+                        }
+                    case 'ge':
+                        return (value: Mana_Cost, cond: Comparison_Condition) => {
+                            return mana_cost_is_super_set(value, cond.value as Mana_Cost, false, logger);
+                        }
+                    case 'le':
+                        return (value: Mana_Cost, cond: Comparison_Condition) => {
+                            return mana_cost_is_super_set(cond.value as Mana_Cost, value, false, logger);
+                        }
                 }
             }
-
-            return condition.type === 'ne';
+        }
+        case 'rarity': {
+            switch (condition.type) {
+                case 'eq':
+                    return (value: Rarity, cond: Comparison_Condition) => {
+                        return RARITY_RANK[value] === RARITY_RANK[cond.value as Rarity];
+                    }
+                case 'ne':
+                    return (value: Rarity, cond: Comparison_Condition) => {
+                        return RARITY_RANK[value] !== RARITY_RANK[cond.value as Rarity];
+                    }
+                case 'gt':
+                    return (value: Rarity, cond: Comparison_Condition) => {
+                        return RARITY_RANK[value] > RARITY_RANK[cond.value as Rarity];
+                    }
+                case 'lt':
+                    return (value: Rarity, cond: Comparison_Condition) => {
+                        return RARITY_RANK[value] < RARITY_RANK[cond.value as Rarity];
+                    }
+                case 'ge':
+                    return (value: Rarity, cond: Comparison_Condition) => {
+                        return RARITY_RANK[value] >= RARITY_RANK[cond.value as Rarity];
+                    }
+                case 'le':
+                    return (value: Rarity, cond: Comparison_Condition) => {
+                        return RARITY_RANK[value] <= RARITY_RANK[cond.value as Rarity];
+                    }
+            }
+        }
+        case 'released_at': {
+            switch (condition.type) {
+                case 'eq':
+                    return (value: Date, cond: Comparison_Condition) => {
+                        return value.getTime() === (cond.value as Date).getTime();
+                    }
+                case 'ne':
+                    return (value: Date, cond: Comparison_Condition) => {
+                        return value.getTime() !== (cond.value as Date).getTime();
+                    }
+                case 'gt':
+                    return (value: Date, cond: Comparison_Condition) => {
+                        return value > (cond.value as Date);
+                    }
+                case 'lt':
+                    return (value: Date, cond: Comparison_Condition) => {
+                        return value < (cond.value as Date);
+                    }
+                case 'ge':
+                    return (value: Date, cond: Comparison_Condition) => {
+                        return value >= (cond.value as Date);
+                    }
+                case 'le':
+                    return (value: Date, cond: Comparison_Condition) => {
+                        return value <= (cond.value as Date);
+                    }
+            }
+        }
+        default: {
+            switch (condition.type) {
+                case 'eq':
+                    return (value: any, cond: Comparison_Condition) => {
+                        return value === cond.value;
+                    }
+                case 'ne':
+                    return (value: any, cond: Comparison_Condition) => {
+                        return value !== cond.value;
+                    }
+                case 'gt':
+                    return (value: any, cond: Comparison_Condition) => {
+                        return value > cond.value;
+                    }
+                case 'lt':
+                    return (value: any, cond: Comparison_Condition) => {
+                        return value < cond.value;
+                    }
+                case 'ge':
+                    return (value: any, cond: Comparison_Condition) => {
+                        return value >= cond.value;
+                    }
+                case 'le':
+                    return (value: any, cond: Comparison_Condition) => {
+                        return value <= cond.value;
+                    }
+            }
         }
     }
 }

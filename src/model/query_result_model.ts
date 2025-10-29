@@ -1,12 +1,16 @@
-import { assert, Nop_Logger } from "./core";
-import { SORT_ORDERS, type Sort_Order } from "./cards";
-import { combine_queries_with_conjunction, parse_query, type Query } from "./query";
-import { find_cards_matching_query, PROPS_REQUIRED_FOR_DISPLAY } from "./query_eval";
-import { POOL_ALL, POOLS } from "./pool";
-import type { Context } from "./context";
+import { assert, EMPTY_MAP, Nop_Logger } from "../core";
+import { SORT_ORDERS, type Sort_Order } from "../cards";
+import { type Query } from "../query";
+import { parse_query } from "../query_parsing";
+import { combine_queries_with_conjunction } from "../query_combination";
+import { find_cards_matching_query, PROPS_REQUIRED_FOR_DISPLAY } from "../query_eval";
+import { POOL_ALL, POOLS } from "../pool";
+import type { Context } from "../context";
+import { DEPENDENCY_SYMBOL, type Dependency, type Dependent } from "../deps";
+import type { Subset_Model } from "./subset_model";
 
 export const DEFAULT_QUERY_STRING = '';
-const DEFAULT_QUERY: Query = parse_query(DEFAULT_QUERY_STRING);
+const DEFAULT_QUERY: Query = parse_query(EMPTY_MAP, DEFAULT_QUERY_STRING);
 export const DEFAULT_POOL: string = POOL_ALL;
 export const DEFAULT_SORT_ORDER: Sort_Order = 'name';
 export const DEFAULT_SORT_ASC = true;
@@ -14,7 +18,7 @@ export const DEFAULT_START_POS = 0;
 
 type Loading_State = 'initial' | 'first_load' | 'loading' | 'success';
 
-export type Card_List_State = {
+export type Query_Result_State = {
     query_string?: string,
     pool?: string,
     pos?: number,
@@ -24,16 +28,15 @@ export type Card_List_State = {
     all_card_indexes?: readonly number[],
 };
 
-export class Card_List {
-    static readonly MAX_LOAD_ATTEMPTS = 2;
-
+export class Query_Result_Model implements Dependent, Dependency {
+    [DEPENDENCY_SYMBOL]: true = true;
     private ctx: Context;
-    readonly id: number;
     private _query_string: string = DEFAULT_QUERY_STRING;
     private _base_query: Query = DEFAULT_QUERY;
     private _pool: string = DEFAULT_POOL;
     private _pool_query: Query = POOLS[DEFAULT_POOL];
-    private _query: Query = DEFAULT_QUERY;
+    private _subset: Subset_Model | null;
+    private _query: Query | null = null;
     private _pos: number = DEFAULT_START_POS;
     readonly max_page_size: number = 120;
     private _sort_order: Sort_Order = DEFAULT_SORT_ORDER;
@@ -41,16 +44,56 @@ export class Card_List {
     private _loading_state: Loading_State = 'initial';
     private _all_card_indexes: readonly number[] = [];
 
-    constructor(ctx: Context, id: number) {
+    constructor(ctx: Context, subset?: Subset_Model) {
         this.ctx = ctx;
-        this.id = id;
+        this._subset = subset ?? null;
+
+        if (subset) {
+            ctx.deps.add(this, subset);
+        }
+    }
+
+    dispose() {
+        this.ctx.deps.remove_all(this);
     }
 
     get query_string(): string {
         return this._query_string;
     }
 
+    get subset(): Subset_Model | null {
+        return this._subset;
+    }
+
+    set subset(subset: Subset_Model) {
+        if (this._subset) {
+            this.ctx.deps.remove(this, this._subset);
+        }
+
+        this._subset = subset;
+        this.ctx.deps.add(this, subset);
+    }
+
     get query(): Query {
+        if (this._query === null) {
+            const queries = [this._base_query, this._pool_query];
+
+            if (this._subset) {
+                queries.push({
+                    props: [],
+                    condition: {
+                        type: 'subset',
+                        id: this._subset.id,
+                    },
+                });
+            }
+
+            this._query = combine_queries_with_conjunction(
+                this.ctx.subset_store.id_to_subset,
+                ...queries,
+            );
+        }
+
         return this._query;
     }
 
@@ -108,7 +151,7 @@ export class Card_List {
         return this._all_card_indexes.length;
     }
 
-    async set(state: Card_List_State, execute_query?: boolean) {
+    async set(state: Query_Result_State, execute_query?: boolean) {
         let changed = false;
         let execute_necessary = false;
 
@@ -116,7 +159,8 @@ export class Card_List {
 
         if (state.query_string !== undefined && state.query_string !== this._query_string) {
             this._query_string = state.query_string;
-            this._base_query = parse_query(this._query_string);
+            this._base_query =
+                parse_query(this.ctx.subset_store.name_to_subset, this._query_string);
             query_changed = true;
         }
 
@@ -129,7 +173,7 @@ export class Card_List {
         }
 
         if (query_changed) {
-            this._query = combine_queries_with_conjunction(this._base_query, this._pool_query);
+            this._query = null;
             changed = true;
             execute_necessary = true;
         }
@@ -174,27 +218,23 @@ export class Card_List {
         }
     }
 
+    invalidated(_dependency: Dependency): void {
+        this._query = null;
+        this.execute_query();
+    }
+
     /** Preloads properties needed for a given query string. */
     async preload(query_string: string) {
         if (query_string !== this.query_string) {
-            for (let attempt = 1; attempt <= Card_List.MAX_LOAD_ATTEMPTS; attempt++) {
-                try {
-                    const loads = [
-                        ...parse_query(query_string).props,
-                        // Ensure all display props are reloaded when data is out of date:
-                        ...PROPS_REQUIRED_FOR_DISPLAY,
-                    ].map(prop => this.ctx.cards.load(prop));
+            await this.execute_retrying('preloading properties', async () => {
+                const loads = [
+                    ...parse_query(this.ctx.subset_store.id_to_subset, query_string).props,
+                    // Ensure all display props are reloaded when data is out of date:
+                    ...PROPS_REQUIRED_FOR_DISPLAY,
+                ].map(prop => this.ctx.cards.load(prop));
 
-                    await Promise.all(loads);
-                } catch (e) {
-                    if (attempt < Card_List.MAX_LOAD_ATTEMPTS) {
-                        this.ctx.logger.error('Error while preloading properties, retrying.', e);
-                        continue;
-                    } else {
-                        throw e;
-                    }
-                }
-            }
+                await Promise.all(loads);
+            });
         }
     }
 
@@ -210,19 +250,7 @@ export class Card_List {
         logger.log('query string', this.query_string);
         logger.log('query', this.query);
 
-        for (let attempt = 1; attempt <= Card_List.MAX_LOAD_ATTEMPTS; attempt++) {
-            try {
-                await this.execute_query_attempt();
-                break;
-            } catch (e) {
-                if (attempt < Card_List.MAX_LOAD_ATTEMPTS) {
-                    logger.error('Error while finding matching cards, retrying.', e);
-                    continue;
-                } else {
-                    throw e;
-                }
-            }
-        }
+        await this.execute_retrying('finding matching cards', () => this.execute_query_attempt());
 
         this.set({ loading_state: 'success' });
 
@@ -230,7 +258,7 @@ export class Card_List {
         logger.group_end();
     }
 
-    async execute_query_attempt() {
+    private async execute_query_attempt() {
         const logger = this.ctx.logger;
         logger.time(this.execute_query_attempt.name);
         logger.time('load');
@@ -256,8 +284,12 @@ export class Card_List {
         logger.time_end('load');
         logger.time('query_evaluate');
 
-        const card_indexes =
-            await find_cards_matching_query(this.ctx.cards, this.query, () => Nop_Logger);
+        const card_indexes = await find_cards_matching_query(
+            this.ctx.cards,
+            this.ctx.subset_store,
+            this.query,
+            () => Nop_Logger,
+        );
 
         logger.time_end('query_evaluate');
         logger.time('load_sorter');
@@ -281,5 +313,23 @@ export class Card_List {
 
         logger.time_end('load_display');
         logger.time_end(this.execute_query_attempt.name);
+    }
+
+    private async execute_retrying(description: string, operation: () => Promise<void>) {
+        const MAX_LOAD_ATTEMPTS = 2;
+
+        for (let attempt = 1; attempt <= MAX_LOAD_ATTEMPTS; attempt++) {
+            try {
+                await operation();
+                break;
+            } catch (e) {
+                if (attempt < MAX_LOAD_ATTEMPTS) {
+                    this.ctx.logger.error(`Error while ${description}, retrying.`, e);
+                    continue;
+                } else {
+                    throw e;
+                }
+            }
+        }
     }
 }

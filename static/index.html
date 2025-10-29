@@ -4,6 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>MTG</title>
     <script src="index.js" type="module" async></script>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" href="data:,">
@@ -14,77 +15,89 @@
 </head>
 
 <body>
-    <header>
-        <div class="filter_container">
-            <div class="filter_base">
-                <input type="text" class="query" autofocus autocomplete="off" spellcheck="false"
-                    onkeydown="if (event.key === 'Enter') { this.dataset['query_string'] = this.value; }">
-                <button class="filter_show_extra">
+    <div class="application">
+        <header>
+            <div class="header_top">
+                <button class="filter_show_extra filter_show_extra_left">
                     <div></div>
                     <div></div>
                     <div></div>
                 </button>
-            </div>
-            <div class="filter_extra">
-                from
-                <select class="pool" autocomplete="off">
-                    <option value="all">All cards</option>
-                    <option value="pmp">Pre-mod. pauper</option>
-                    <option value="pmpc">Pre-mod. pauper cmdr.</option>
-                    <option value="pmpst">Pre-mod. peasant</option>
-                    <option value="pmpstc">Pre-mod. peasant cmdr.</option>
-                    <option value="mp">Mod. pauper</option>
-                    <option value="mpc">Mod. pauper cmdr.</option>
-                </select>
-                sorted by
-                <select class="sort_order" autocomplete="off">
-                    <option value="cmc">Mana value</option>
-                    <option value="name" selected>Name</option>
-                    <option value="released_at">Release date</option>
-                </select>
-                <div class="sort_dir">
-                    <label>
-                        <input type="radio" name="sort_dir" value="asc" autocomplete="off" checked>Asc
-                    </label>
-                    <label>
-                        <input type="radio" name="sort_dir" value="desc" autocomplete="off">Desc
-                    </label>
+                <div class="filter_container">
+                    <div class="filter_base">
+                        <input type="text" class="query" autofocus autocomplete="off" autocapitalize="off"
+                            spellcheck="false"
+                            onkeydown="if (event.key === 'Enter') { this.dataset['query_string'] = this.value; }">
+                        <button class="filter_show_extra filter_show_extra_right">
+                            <div></div>
+                            <div></div>
+                            <div></div>
+                        </button>
+                    </div>
+                    <div class="filter_extra">
+                        from
+                        <select class="pool" autocomplete="off">
+                            <option value="all">All cards</option>
+                            <option value="pmp">Pre-mod. pauper</option>
+                            <option value="pmpc">Pre-mod. pauper cmdr.</option>
+                            <option value="pmpst">Pre-mod. peasant</option>
+                            <option value="pmpstc">Pre-mod. peasant cmdr.</option>
+                            <option value="mp">Mod. pauper</option>
+                            <option value="mpc">Mod. pauper cmdr.</option>
+                        </select>
+                        sorted by
+                        <select class="sort_order" autocomplete="off">
+                            <option value="cmc">Mana value</option>
+                            <option value="name" selected>Name</option>
+                            <option value="released_at">Release date</option>
+                        </select>
+                        <div class="sort_dir">
+                            <label>
+                                <input type="radio" name="sort_dir" value="asc" autocomplete="off" checked>Asc
+                            </label>
+                            <label>
+                                <input type="radio" name="sort_dir" value="desc" autocomplete="off">Desc
+                            </label>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
-        <div class="result_nav">
-            <div class="result_summary"></div>
-            <div class="result_buttons">
-                <button class="result_first" disabled>
-                    <svg width="6" height="10">
-                        <line x1="0.5" y1="0.5" x2="0.5" y2="9.5" stroke="currentColor" stroke-width="1" />
-                        <path d="M 1 5 L 6 10 L 6 0 z" fill="currentColor"></path>
-                    </svg>
-                </button>
-                <button class="result_prev" disabled>
-                    <svg width="5" height="10">
-                        <path d="M 0 5 L 5 10 L 5 0 z" fill="currentColor"></path>
-                    </svg>
-                    Previous
-                </button>
-                <button class="result_next" disabled>
-                    Next 120
-                    <svg width="5" height="10">
-                        <path d="M 0 10 L 5 5 L 0 0 z" fill="currentColor"></path>
-                    </svg>
-                </button>
-                <button class="result_last" disabled>
-                    <svg width="6" height="10">
-                        <path d="M 0 10 L 5 5 L 0 0 z" fill="currentColor"></path>
-                        <line x1="5.5" y1="0.5" x2="5.5" y2="9.5" stroke="currentColor" stroke-width="1" />
-                    </svg>
-                </button>
+            <div class="header_bottom">
+                <div class="result_nav">
+                    <div class="result_summary"></div>
+                    <div class="result_buttons">
+                        <button class="result_first" disabled>
+                            <svg width="6" height="10">
+                                <line x1="0.5" y1="0.5" x2="0.5" y2="9.5" stroke="currentColor" stroke-width="1" />
+                                <path d="M 1 5 L 6 10 L 6 0 z" fill="currentColor"></path>
+                            </svg>
+                        </button>
+                        <button class="result_prev" disabled>
+                            <svg width="5" height="10">
+                                <path d="M 0 5 L 5 10 L 5 0 z" fill="currentColor"></path>
+                            </svg>
+                            Previous
+                        </button>
+                        <button class="result_next" disabled>
+                            Next 120
+                            <svg width="5" height="10">
+                                <path d="M 0 10 L 5 5 L 0 0 z" fill="currentColor"></path>
+                            </svg>
+                        </button>
+                        <button class="result_last" disabled>
+                            <svg width="6" height="10">
+                                <path d="M 0 10 L 5 5 L 0 0 z" fill="currentColor"></path>
+                                <line x1="5.5" y1="0.5" x2="5.5" y2="9.5" stroke="currentColor" stroke-width="1" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="result_dummy"></div>
+                </div>
             </div>
-            <div class="result_dummy"></div>
+        </header>
+        <div class="result" tabindex="-1">
+            <div class="cards_loading">Loading...</div>
         </div>
-    </header>
-    <div class="result" tabindex="-1">
-        <div class="cards_loading">Loading...</div>
     </div>
 </body>
 

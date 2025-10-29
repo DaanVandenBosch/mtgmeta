@@ -1,4 +1,8 @@
+const freeze = Object.freeze;
+
 export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
+export const EMPTY_MAP: ReadonlyMap<never, never> = freeze(new Map<never, never>);
 
 export function assert(condition: boolean, message?: () => string): asserts condition {
     if (!condition) {
@@ -10,21 +14,6 @@ export function assert_eq<T>(actual: T, expected: T) {
     assert(
         deep_eq(actual, expected),
         () => `Expected ${JSON.stringify(expected)} but got ${JSON.stringify(actual)}.`,
-    );
-}
-
-export function assert_nonnullish<T>(actual: T | undefined | null): T {
-    assert_nonnullish_helper(actual);
-    return actual;
-}
-
-/** Need this helper, because we can't have a return type and an asserts clause at the same time. */
-function assert_nonnullish_helper<T>(
-    actual: T | undefined | null,
-): asserts actual is T extends undefined | null ? never : T {
-    assert(
-        actual != null,
-        () => `Expected nonnullish value but got ${actual}.`,
     );
 }
 
@@ -55,6 +44,10 @@ export function string_to_int(s: string): number | null {
     }
 
     return parseInt(s, 10);
+}
+
+export function index_of<T>(array_like: ArrayLike<T>, search_item: T, from_index?: number): number {
+    return Array.prototype.indexOf.call(array_like, search_item, from_index);
 }
 
 export interface Logger {

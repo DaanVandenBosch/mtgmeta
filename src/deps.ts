@@ -1,16 +1,41 @@
-import { assert, Console_Logger } from "./core";
+import { assert, type Logger } from "./core";
+
+export const DEPENDENCY_SYMBOL = Symbol("dependency");
+export const LEAF_DEPENDENT_SYMBOL = Symbol("leaf");
+
+export interface Dependency {
+    [DEPENDENCY_SYMBOL]: true;
+}
 
 export interface Dependent {
+    invalidated(dependency: Dependency): void;
+}
+
+export interface Leaf_Dependent extends Dependent {
+    [LEAF_DEPENDENT_SYMBOL]: true;
     update(): void;
 }
 
+function is_dependency(object: any): object is Dependency {
+    return (object as Dependency)[DEPENDENCY_SYMBOL];
+}
+
+function is_leaf(dependent: Dependent): dependent is Leaf_Dependent {
+    return (dependent as Leaf_Dependent)[LEAF_DEPENDENT_SYMBOL];
+}
+
 export class Deps {
-    private dependent_to_dependencies = new Map<Dependent, Set<any>>;
-    private dependency_to_dependents = new Map<any, Set<Dependent>>;
-    private out_of_date_dependents = new Set<Dependent>;
+    private logger: Logger;
+    private dependent_to_dependencies = new Map<Dependent, Set<Dependency>>;
+    private dependency_to_dependents = new Map<Dependency, Set<Dependent>>;
+    private out_of_date_dependents = new Set<Leaf_Dependent>;
     private update_scheduled = false;
 
-    add(dependent: Dependent, ...dependencies: any[]) {
+    constructor(logger: Logger) {
+        this.logger = logger;
+    }
+
+    add(dependent: Dependent, ...dependencies: Dependency[]) {
         let dependencies_set = this.dependent_to_dependencies.get(dependent);
 
         if (dependencies_set === undefined) {
@@ -32,29 +57,38 @@ export class Deps {
         }
     }
 
+    remove(dependent: Dependent, ...dependencies: Dependency[]) {
+        let dependencies_set = this.dependent_to_dependencies.get(dependent);
+
+        if (dependencies_set === undefined) {
+            return;
+        }
+
+        for (const dependency of dependencies) {
+            const was_dependency = dependencies_set.delete(dependency);
+
+            if (was_dependency) {
+                let deleted = this.dependency_to_dependents.get(dependency)!.delete(dependent);
+                assert(deleted);
+            }
+        }
+    }
+
     remove_all(dependent: Dependent) {
         const dependencies = this.dependent_to_dependencies.get(dependent);
 
         if (dependencies !== undefined) {
             for (const dependency of dependencies) {
-                const changed = this.dependency_to_dependents.get(dependency)!.delete(dependent);
-                assert(changed);
+                const deleted = this.dependency_to_dependents.get(dependency)!.delete(dependent);
+                assert(deleted);
             }
 
             this.dependent_to_dependencies.delete(dependent);
         }
     }
 
-    changed(...dependencies: any[]) {
-        for (const dependency of dependencies) {
-            const dependents = this.dependency_to_dependents.get(dependency);
-
-            if (dependents) {
-                for (const dependent of dependents) {
-                    this.out_of_date_dependents.add(dependent);
-                }
-            }
-        }
+    changed(dependency: Dependency) {
+        this.invalidate(dependency);
 
         if (!this.update_scheduled) {
             requestAnimationFrame(() => {
@@ -65,7 +99,7 @@ export class Deps {
                         try {
                             dependent.update();
                         } catch (e) {
-                            Console_Logger.error(e);
+                            this.logger.error(e);
                         }
                     }
                 } finally {
@@ -73,6 +107,24 @@ export class Deps {
                 }
             });
             this.update_scheduled = true;
+        }
+    }
+
+    private invalidate(dependency: Dependency) {
+        const dependents = this.dependency_to_dependents.get(dependency);
+
+        if (dependents) {
+            for (const dependent of dependents) {
+                if (is_leaf(dependent)) {
+                    this.out_of_date_dependents.add(dependent);
+                }
+
+                dependent.invalidated(dependency);
+
+                if (is_dependency(dependent)) {
+                    this.invalidate(dependent);
+                }
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 import { assert, assert_eq, Console_Logger } from './core';
-import { INEXACT_REGEX, parse_mana_cost, PER_VERSION_PROPS, type Prop } from './query';
+import { INEXACT_REGEX, PER_VERSION_PROPS, type Prop } from './query';
+import { parse_mana_cost } from './query_parsing';
 
 const TEXT_DECODER = new TextDecoder;
 
@@ -158,13 +159,13 @@ class Out_Of_Date_Error extends Error {
 
 export class Cards {
     private _length: number | null = null;
-    private props: Map<Prop, any> = new Map;
+    private props: Map<Prop, any> = new Map();
     private prop_promises: Map<Prop, Promise<void>> = new Map;
     private sorters: Map<Sort_Order, Promise<Sorter>> = new Map;
     private creation_time: Date | null = null;
     private aborter = new AbortController;
     private fetch_with_cache_reload = false;
-    private last_clear: number = performance.now();
+    private last_clear: number | null = null;
 
     get length(): number | null {
         return this._length;
@@ -180,7 +181,7 @@ export class Cards {
         const now = performance.now();
 
         // We only try refetching with cache reload once every minute.
-        if (now - this.last_clear >= 60_000) {
+        if (this.last_clear === null || (now - this.last_clear >= 60_000)) {
             // Abort all in-flight requests.
             this.aborter.abort();
             this.aborter = new AbortController;
@@ -256,12 +257,12 @@ export class Cards {
                     case 'cost': {
                         for (const faces of data) {
                             for (let i = 0, len = faces.length; i < len; i++) {
-                                const value_str = faces[i];
+                                const value_str: string | null = faces[i];
 
                                 // Ignore non-existent values. Also ignore empty mana costs of
                                 // the backside of transform cards.
                                 if (value_str === null
-                                    || (i >= 1 && prop === 'cost' && value_str === '')
+                                    || (i >= 1 && prop === 'cost' && value_str.length === 0)
                                 ) {
                                     faces[i] = null;
                                 } else {
@@ -282,10 +283,10 @@ export class Cards {
                     }
 
                     case 'name': {
-                        const search_data = [];
-                        const inexact_data = [];
+                        const search_data: string[] = [];
+                        const inexact_data: string[] = [];
 
-                        for (const values of data) {
+                        for (const values of data as string[][]) {
                             search_data.push(
                                 values
                                     .join(' // ')
@@ -305,14 +306,14 @@ export class Cards {
                     }
 
                     case 'full_oracle': {
-                        const oracle_data = [];
-                        const oracle_search_data = [];
-                        const full_oracle_search_data = [];
+                        const oracle_data: string[][] = [];
+                        const oracle_search_data: string[][] = [];
+                        const full_oracle_search_data: string[][] = [];
 
-                        for (const full_oracle_texts of data) {
-                            const oracle_texts = [];
-                            const oracle_search_texts = [];
-                            const full_oracle_search_values = [];
+                        for (const full_oracle_texts of data as string[][]) {
+                            const oracle_texts: string[] = [];
+                            const oracle_search_texts: string[] = [];
+                            const full_oracle_search_values: string[] = [];
 
                             for (const full_oracle_text of full_oracle_texts) {
                                 const oracle_text = remove_parenthesized_text(full_oracle_text);
@@ -337,7 +338,7 @@ export class Cards {
                     }
 
                     case 'type': {
-                        const search_data = data.map((values: string[]) =>
+                        const search_data: string[][] = (data as string[][]).map(values =>
                             values.map(v => v.toLocaleLowerCase('en'))
                         );
                         this.props.set((prop + '_search') as Prop, search_data);
@@ -405,7 +406,7 @@ export class Cards {
     name(idx: number): string | null {
         const names = this.get<string[]>(idx, 'name');
 
-        if (names === null || names.length == 0) {
+        if (names === null || names.length === 0) {
             return null;
         }
 
