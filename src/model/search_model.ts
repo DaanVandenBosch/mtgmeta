@@ -11,7 +11,7 @@ export class Search_Model {
         await this.result.set(state, execute_query);
     }
 
-    async preload(query_string: string) {
-        await this.result.preload(query_string);
+    async preload_data(query_string: string) {
+        await this.result.preload_data(query_string);
     }
 };

@@ -202,8 +202,8 @@ export class Search_View implements View, Leaf_Dependent {
     }
 
     private async query_keyup(): Promise<void> {
-        // Try to preload properties while the user is typing.
-        await this.search.preload(this.query_el.value);
+        // Try to preload data while the user is typing.
+        await this.search.preload_data(this.query_el.value);
     }
 
     private show_extra_right_click(): void {

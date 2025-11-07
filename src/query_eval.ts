@@ -41,16 +41,16 @@ enum Uint_Set_Type {
     ARRAY,
 }
 
-export async function find_cards_matching_query(
+export function find_cards_matching_query(
     cards: Cards,
     subset_store: Subset_Store,
     query: Query,
     card_logger: (idx: number) => Logger,
-): Promise<Map<number, number>> {
+): Map<number, number> {
     assert(cards.length !== null);
 
     const evaluator = new Query_Evaluator(cards, subset_store, query, true, true);
-    const matching_cards = new Map<number, number>();
+    const matching_cards: Map<number, number> = new Map;
 
     for (let card_idx = 0; card_idx < cards.length; card_idx++) {
         try {

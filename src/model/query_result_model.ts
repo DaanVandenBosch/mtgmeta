@@ -1,9 +1,9 @@
-import { assert, EMPTY_MAP, Nop_Logger } from "../core";
+import { assert, EMPTY_MAP } from "../core";
 import { SORT_ORDERS, type Sort_Order } from "../cards";
 import { type Query } from "../query";
 import { parse_query } from "../query_parsing";
 import { combine_queries_with_conjunction } from "../query_combination";
-import { find_cards_matching_query, PROPS_REQUIRED_FOR_DISPLAY } from "../query_eval";
+import { PROPS_REQUIRED_FOR_DISPLAY } from "../query_eval";
 import { POOL_ALL, POOLS } from "../pool";
 import type { Context } from "../context";
 import { DEPENDENCY_SYMBOL, type Dependency, type Dependent } from "../deps";
@@ -229,113 +229,30 @@ export class Query_Result_Model implements Dependent, Dependency {
         this.execute_query();
     }
 
-    /** Preloads properties needed for a given query string. */
-    async preload(query_string: string) {
+    /** Preloads display properties and properties needed for a given query string. */
+    async preload_data(query_string: string): Promise<void> {
         if (query_string !== this.query_string) {
-            await this.execute_retrying('preloading properties', async () => {
-                const props = [
-                    ...parse_query(this.ctx.subset_store.id_to_subset, query_string).props,
-                    // Ensure all display props are reloaded when data is out of date:
-                    ...PROPS_REQUIRED_FOR_DISPLAY,
-                ];
-                const loads = props.map(prop => this.ctx.cards.load(prop));
-                await Promise.all(loads);
-            });
+            const query = parse_query(this.ctx.subset_store.id_to_subset, query_string);
+            const loads = [
+                this.ctx.query_executor.preload_data(query, this.sort_order),
+                // Ensure all display props are reloaded when data is out of date:
+                ...PROPS_REQUIRED_FOR_DISPLAY.map(prop => this.ctx.cards.load(prop)),
+            ];
+            await Promise.all(loads);
         }
     }
 
-    private async execute_query() {
-        const logger = this.ctx.logger;
-        logger.group('Executing card query.');
-
-        // TODO: Cancel query execution underway.
-
+    private async execute_query(): Promise<void> {
         this.set({ loading_state: this.loading_state === 'initial' ? 'first_load' : 'loading' });
 
-        logger.time(this.execute_query.name);
-        logger.log('query string', this.query_string);
-        logger.log('query', this.query);
+        this.ctx.logger.log('executing query for string:', this.query_string);
 
-        await this.execute_retrying('finding matching cards', () => this.execute_query_attempt());
+        const all_card_indexes =
+            await this.ctx.query_executor.execute(this.query, this.sort_order, this.sort_asc);
 
-        this.set({ loading_state: 'success' });
-
-        logger.time_end(this.execute_query.name);
-        logger.group_end();
-    }
-
-    private async execute_query_attempt() {
-        const logger = this.ctx.logger;
-        logger.time(this.execute_query_attempt.name);
-        logger.time('load');
-
-        // Fire off data loads.
-        const required_for_query_promises = this.query.props.map(prop => this.ctx.cards.load(prop));
-        const required_for_display_promises =
-            PROPS_REQUIRED_FOR_DISPLAY.map(prop => this.ctx.cards.load(prop));
-
-        const sorter_promise = this.ctx.cards.get_sorter(this.sort_order);
-
-        // Await data loads necessary for query.
-        for (const promise of required_for_query_promises) {
-            await promise;
-        }
-
-        // Await at least one display property if we have no required properties to wait for, just
-        // to get the amount of cards.
-        if (this.ctx.cards.length === null) {
-            await Promise.race(required_for_display_promises);
-        }
-
-        logger.time_end('load');
-        logger.time('query_evaluate');
-
-        const card_indexes = await find_cards_matching_query(
-            this.ctx.cards,
-            this.ctx.subset_store,
-            this.query,
-            () => Nop_Logger,
-        );
-
-        logger.time_end('query_evaluate');
-        logger.time('load_sorter');
-
-        const sorter = await sorter_promise;
-
-        logger.time_end('load_sorter');
-        logger.time('sort');
-
-        const sorted_card_indexes = sorter.sort(card_indexes, this.sort_asc);
-
-        logger.time_end('sort');
-        logger.time('load_display');
-
-        // Await data loads necessary for display.
-        for (const promise of required_for_display_promises) {
-            await promise;
-        }
-
-        this.set({ all_card_indexes: sorted_card_indexes });
-
-        logger.time_end('load_display');
-        logger.time_end(this.execute_query_attempt.name);
-    }
-
-    private async execute_retrying(description: string, operation: () => Promise<void>) {
-        const MAX_LOAD_ATTEMPTS = 2;
-
-        for (let attempt = 1; attempt <= MAX_LOAD_ATTEMPTS; attempt++) {
-            try {
-                await operation();
-                break;
-            } catch (e) {
-                if (attempt < MAX_LOAD_ATTEMPTS) {
-                    this.ctx.logger.error(`Error while ${description}, retrying.`, e);
-                    continue;
-                } else {
-                    throw e;
-                }
-            }
-        }
+        this.set({
+            loading_state: 'success',
+            all_card_indexes,
+        });
     }
 }

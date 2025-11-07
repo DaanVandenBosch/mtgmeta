@@ -10,12 +10,13 @@ import {
     type Logger,
 } from "./core";
 import { Array_Set, Bitset, Bitset_32 } from "./uint_set";
-import { PROPS } from "./query";
+import { PROPS, type Comparison_Condition, type Condition, type Query } from "./query";
 import { parse_query } from "./query_parsing";
 import { simplify_query } from "./query_combination";
 import { find_cards_matching_query } from "./query_eval";
 import { remove_parenthesized_text, type Cards } from "./cards";
 import { Subset_Store } from "./subset";
+import { query_hash } from "./query_executor";
 
 export async function run_test_suite(cards: Cards) {
     Console_Logger.time('run_test_suite');
@@ -476,6 +477,168 @@ export async function run_test_suite(cards: Cards) {
         const o = remove_parenthesized_text(fo);
 
         assert_eq(o, 'This is')
+    });
+    test('query_hash produces identical hashes for identical queries and different hashes for different queries.', async () => {
+        const conditions: Condition[] = [
+            {
+                type: 'true',
+            },
+            {
+                type: 'false',
+            },
+            {
+                type: 'not',
+                condition: { type: 'true' },
+            },
+            {
+                type: 'or',
+                conditions: [{ type: 'true' }],
+            },
+            {
+                type: 'and',
+                conditions: [{ type: 'true' }],
+            },
+            ...(['eq', 'ne', 'lt', 'gt', 'le', 'ge'] as Comparison_Condition['type'][])
+                .map(
+                    type => ({
+                        type,
+                        prop: 'cmc',
+                        value: 0,
+                    } as Comparison_Condition)
+                ),
+            {
+                type: 'eq',
+                prop: 'cost',
+                value: { 'N': 2, 'R/G': 1 },
+            },
+            {
+                type: 'substring',
+                prop: 'name',
+                value: 'jos',
+            },
+            {
+                type: 'even',
+                prop: 'cmc',
+            },
+            {
+                type: 'odd',
+                prop: 'cmc',
+            },
+            {
+                type: 'range',
+                prop: 'released_at',
+                start: new Date('2022-04-10'),
+                start_inc: true,
+                end: new Date('2022-06-22'),
+                end_inc: false,
+            },
+            {
+                type: 'subset',
+                id: 'identifier',
+            },
+        ];
+
+        // We use this object to ensure we have a condition of every type. When new conditions are
+        // added this will fail to compile.
+        const conditions_encountered: { [t in Condition['type']]: boolean } = {
+            true: false,
+            false: false,
+            not: false,
+            or: false,
+            and: false,
+            eq: false,
+            ne: false,
+            lt: false,
+            gt: false,
+            le: false,
+            ge: false,
+            substring: false,
+            even: false,
+            odd: false,
+            range: false,
+            subset: false,
+        };
+
+        let prev_hash: bigint | null = null;
+
+        for (const condition of conditions) {
+            conditions_encountered[condition.type] = true;
+            // We generate a query that's technically incorrect because its props attribute is
+            // always empty. This doesn't matter for generating hashes, because this array simply
+            // contains redundant data (that is ignored by the hash function) as an optmization for
+            // the query evaluator.
+            const original: Query = { props: [], condition };
+            const original_hash = await query_hash(original);
+
+            // Verify that no two queries with conditions of different types have the same hash.
+            assert(original_hash !== prev_hash);
+            prev_hash = original_hash;
+
+            const copy: Query = structuredClone(original);
+            const copy_hash = await query_hash(copy);
+
+            assert_eq(copy_hash, original_hash);
+
+            // Verify that a change to any propery of the query condition changes the hash.
+            for (const k in condition) {
+                if (k === 'type') {
+                    continue;
+                }
+
+                const changed_queries: Query[] = [];
+                const changed: any = structuredClone(original);
+                changed_queries.push(changed);
+                const value = (condition as any)[k];
+
+                if (Array.isArray(value)) {
+                    // Assume it's an array of conditions. Make a changed query with an extra
+                    // element and one with a single element replaced (keeping the length the same).
+                    assert(value.length >= 1);
+
+                    changed.condition[k].push({ type: 'true' });
+
+                    const replaced_element_query: any = structuredClone(original);
+                    replaced_element_query.condition[k][0] = {
+                        type: value[0].type === 'true' ? 'false' : 'true',
+                    };
+                    changed_queries.push(replaced_element_query);
+                } else if (typeof value === 'boolean') {
+                    changed.condition[k] = !value;
+                } else if (typeof value === 'number') {
+                    changed.condition[k] = value + 1;
+                } else if (typeof value === 'string') {
+                    const props_index = PROPS.indexOf(value as any);
+
+                    if (props_index !== -1) {
+                        // Assume it's a Prop.
+                        changed.condition[k] = PROPS[(props_index + 1) % PROPS.length];
+                    } else {
+                        changed.condition[k] = value + 'x';
+                    }
+                } else if (value instanceof Date) {
+                    changed.condition[k] = new Date(value.getTime() + 1);
+                } else if ('type' in value) {
+                    // Assume it's a condition.
+                    changed.condition[k] = {
+                        type: value.type === 'true' ? 'false' : 'true',
+                    };
+                } else {
+                    // Assume it's a mana cost.
+                    assert(!('X' in changed.condition[k]));
+                    changed.condition[k]['X'] = 1;
+                }
+
+                for (const changed_query of changed_queries) {
+                    const changed_hash = await query_hash(changed_query);
+
+                    assert(changed_hash !== copy_hash);
+                }
+            }
+        }
+
+        for (const [k, v] of Object.entries(conditions_encountered)) {
+            assert(v, () => `No condition of type ${k} in test set.`);
+        }
     });
     test_query(
         'name, ignore punctuation',
