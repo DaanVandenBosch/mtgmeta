@@ -21,6 +21,7 @@ type Loading_State = 'initial' | 'first_load' | 'loading' | 'success';
 export type Query_Result_State = {
     query_string?: string,
     pool?: string,
+    subset?: Subset_Model | null,
     pos?: number,
     sort_order?: Sort_Order,
     sort_asc?: boolean,
@@ -63,15 +64,6 @@ export class Query_Result_Model implements Dependent, Dependency {
 
     get subset(): Subset_Model | null {
         return this._subset;
-    }
-
-    set subset(subset: Subset_Model) {
-        if (this._subset) {
-            this.ctx.deps.remove(this, this._subset);
-        }
-
-        this._subset = subset;
-        this.ctx.deps.add(this, subset);
     }
 
     get query(): Query {
@@ -172,6 +164,20 @@ export class Query_Result_Model implements Dependent, Dependency {
             query_changed = true;
         }
 
+        if (state.subset !== undefined && state.subset !== this._subset) {
+            if (this._subset !== null) {
+                this.ctx.deps.remove(this, this._subset);
+            }
+
+            this._subset = state.subset;
+
+            if (state.subset !== null) {
+                this.ctx.deps.add(this, state.subset);
+            }
+
+            query_changed = true;
+        }
+
         if (query_changed) {
             this._query = null;
             changed = true;
@@ -227,22 +233,22 @@ export class Query_Result_Model implements Dependent, Dependency {
     async preload(query_string: string) {
         if (query_string !== this.query_string) {
             await this.execute_retrying('preloading properties', async () => {
-                const loads = [
+                const props = [
                     ...parse_query(this.ctx.subset_store.id_to_subset, query_string).props,
                     // Ensure all display props are reloaded when data is out of date:
                     ...PROPS_REQUIRED_FOR_DISPLAY,
-                ].map(prop => this.ctx.cards.load(prop));
-
+                ];
+                const loads = props.map(prop => this.ctx.cards.load(prop));
                 await Promise.all(loads);
             });
         }
     }
 
-    async execute_query() {
+    private async execute_query() {
         const logger = this.ctx.logger;
         logger.group('Executing card query.');
 
-        // TODO: Cancel load underway.
+        // TODO: Cancel query execution underway.
 
         this.set({ loading_state: this.loading_state === 'initial' ? 'first_load' : 'loading' });
 

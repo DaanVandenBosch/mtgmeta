@@ -4,6 +4,9 @@ export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 export const EMPTY_MAP: ReadonlyMap<never, never> = freeze(new Map<never, never>);
 
+export const TEXT_ENCODER = new TextEncoder;
+export const TEXT_DECODER = new TextDecoder;
+
 export function assert(condition: boolean, message?: () => string): asserts condition {
     if (!condition) {
         throw Error(message ? message() : 'Assertion failed.');
@@ -12,23 +15,13 @@ export function assert(condition: boolean, message?: () => string): asserts cond
 
 export function assert_eq<T>(actual: T, expected: T) {
     assert(
-        deep_eq(actual, expected),
+        actual === expected,
         () => `Expected ${JSON.stringify(expected)} but got ${JSON.stringify(actual)}.`,
     );
 }
 
 export function unreachable(message?: string): never {
     throw Error(message ?? `Should never reach this code.`);
-}
-
-export function deep_eq<T>(a: T, b: T): boolean {
-    if (a instanceof Set) {
-        return b instanceof Set && a.size === b.size && a.isSubsetOf(b);
-    } else if (Array.isArray(a) || (typeof a === 'object' && a !== null)) {
-        throw Error(`Type of ${a} is unsupported.`);
-    } else {
-        return a === b;
-    }
 }
 
 /** Counts the number of bits set in a 32-bit integer. */

@@ -1,8 +1,6 @@
-import { assert, assert_eq, Console_Logger } from './core';
+import { assert, assert_eq, Console_Logger, TEXT_DECODER } from './core';
 import { INEXACT_REGEX, PER_VERSION_PROPS, type Prop } from './query';
 import { parse_mana_cost } from './query_parsing';
-
-const TEXT_DECODER = new TextDecoder;
 
 export type Sort_Order = 'cmc' | 'name' | 'released_at';
 export const SORT_ORDERS: Sort_Order[] = ['cmc', 'name', 'released_at'];

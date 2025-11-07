@@ -1041,7 +1041,7 @@ function parse_mana_symbol(
     // Generic X: {X}
     // Snow: {S}
     // Hybrid: {W/U}, {W/B}, {U/B}, {U/R}, {B/R}, {B/G}, {R/G}, {R/W}, {G/W}, {G/U}
-    // Monocolored hybrid: {2/W}
+    // Monocolored hybrid: {2/W}, {2/U}, {2/B}, {2/R}, {2/G}
     // Colorless hybrid: {C/W}, {C/U}, {C/B}, {C/R}, {C/G}
     // Phyrexian: {W/P}, {U/P}, {B/P}, {R/P}, {G/P}
     // Phyrexian hybrid:
@@ -1090,81 +1090,84 @@ function parse_mana_symbol(
 
         str += MANA_SNOW;
     } else {
-        // Phyrexian, hybrid or regular cost.
+        // Regular or hybrid, possibly in combination with Phyrexian.
         const has_phyrexian = symbols.has(MANA_PHYREXIAN);
 
         if (symbols.size > (has_phyrexian ? 3 : 2)) {
             return null;
         }
 
-        if (symbols.has(MANA_COLORLESS)) {
-            // Colorless or colorless hybrid.
-            if (has_phyrexian) {
-                return null;
-            }
+        const has_white = symbols.has(MANA_WHITE);
+        const has_blue = symbols.has(MANA_BLUE);
+        const has_black = symbols.has(MANA_BLACK);
+        const has_red = symbols.has(MANA_RED);
+        const has_green = symbols.has(MANA_GREEN);
 
+        if (symbols.has(MANA_COLORLESS)) {
             str += MANA_COLORLESS;
 
-            for (const s of symbols.keys()) {
-                if (s === MANA_COLORLESS) {
-                    continue;
+            if (has_white || has_blue || has_black || has_red || has_green) {
+                // Colorless hybrid, can't be combined with Phyrexian.
+                if (has_phyrexian) {
+                    return null;
                 }
 
-                str += '/' + s;
-                break;
+                if (has_white) {
+                    str += '/' + MANA_WHITE;
+                } else if (has_blue) {
+                    str += '/' + MANA_BLUE;
+                } else if (has_black) {
+                    str += '/' + MANA_BLACK;
+                } else if (has_red) {
+                    str += '/' + MANA_RED;
+                } else {
+                    assert(has_green);
+                    str += '/' + MANA_GREEN;
+                }
+            }
+        } else if (has_white) {
+            if (has_blue) {
+                str += MANA_WHITE + '/' + MANA_BLUE;
+            } else if (has_black) {
+                str += MANA_WHITE + '/' + MANA_BLACK;
+            } else if (has_red) {
+                str += MANA_RED + '/' + MANA_WHITE;
+            } else if (has_green) {
+                str += MANA_GREEN + '/' + MANA_WHITE;
+            } else {
+                str += MANA_WHITE;
+            }
+        } else if (has_blue) {
+            if (has_black) {
+                str += MANA_BLUE + '/' + MANA_BLACK;
+            } else if (has_red) {
+                str += MANA_BLUE + '/' + MANA_RED;
+            } else if (has_green) {
+                str += MANA_GREEN + '/' + MANA_BLUE;
+            } else {
+                str += MANA_BLUE;
+            }
+        } else if (has_black) {
+            if (has_red) {
+                str += MANA_BLACK + '/' + MANA_RED;
+            } else if (has_green) {
+                str += MANA_BLACK + '/' + MANA_GREEN;
+            } else {
+                str += MANA_BLACK;
+            }
+        } else if (has_red) {
+            if (has_green) {
+                str += MANA_RED + '/' + MANA_GREEN;
+            } else {
+                str += MANA_RED;
             }
         } else {
-            // Regular or hybrid, possibly in combination with phyrexian.
-            const has_white = symbols.has(MANA_WHITE);
-            const has_blue = symbols.has(MANA_BLUE);
-            const has_black = symbols.has(MANA_BLACK);
-            const has_red = symbols.has(MANA_RED);
-            const has_green = symbols.has(MANA_GREEN);
+            assert(has_green);
+            str += MANA_GREEN;
+        }
 
-            if (has_white) {
-                if (has_blue) {
-                    str += MANA_WHITE + '/' + MANA_BLUE;
-                } else if (has_black) {
-                    str += MANA_WHITE + '/' + MANA_BLACK;
-                } else if (has_red) {
-                    str += MANA_RED + '/' + MANA_WHITE;
-                } else if (has_green) {
-                    str += MANA_GREEN + '/' + MANA_WHITE;
-                } else {
-                    str += MANA_WHITE;
-                }
-            } else if (has_blue) {
-                if (has_black) {
-                    str += MANA_BLUE + '/' + MANA_BLACK;
-                } else if (has_red) {
-                    str += MANA_BLUE + '/' + MANA_RED;
-                } else if (has_green) {
-                    str += MANA_GREEN + '/' + MANA_BLUE;
-                } else {
-                    str += MANA_BLUE;
-                }
-            } else if (has_black) {
-                if (has_red) {
-                    str += MANA_BLACK + '/' + MANA_RED;
-                } else if (has_green) {
-                    str += MANA_BLACK + '/' + MANA_GREEN;
-                } else {
-                    str += MANA_BLACK;
-                }
-            } else if (has_red) {
-                if (has_green) {
-                    str += MANA_RED + '/' + MANA_GREEN;
-                } else {
-                    str += MANA_RED;
-                }
-            } else {
-                assert(has_green);
-                str += MANA_GREEN;
-            }
-
-            if (has_phyrexian) {
-                str += '/' + MANA_PHYREXIAN;
-            }
+        if (has_phyrexian) {
+            str += '/' + MANA_PHYREXIAN;
         }
     }
 

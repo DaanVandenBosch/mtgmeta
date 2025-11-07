@@ -2,7 +2,6 @@ import {
     assert,
     assert_eq,
     Console_Logger,
-    deep_eq,
     EMPTY_MAP,
     Mem_Logger,
     Nop_Logger,
@@ -65,7 +64,7 @@ export async function run_test_suite(cards: Cards) {
 
             const actual = new Set([...result.keys()].map(idx => cards.name(idx)));
 
-            if (expected.size !== actual.size || !deep_eq(actual, expected)) {
+            if (!deep_eq(actual, expected)) {
                 const missing_set = expected.difference(actual);
                 const unexpected_set = actual.difference(expected);
                 const log_set = new Set();
@@ -899,5 +898,15 @@ export async function run_test_suite(cards: Cards) {
     } else {
         Console_Logger.info(`Ran ${executed} tests, ${failed} failed.`);
         alert(`${failed} Tests failed!`);
+    }
+}
+
+function deep_eq<T>(a: T, b: T): boolean {
+    if (a instanceof Set) {
+        return b instanceof Set && a.size === b.size && a.isSubsetOf(b);
+    } else if (Array.isArray(a) || (typeof a === 'object' && a !== null)) {
+        throw Error(`Type of ${a} is unsupported.`);
+    } else {
+        return a === b;
     }
 }

@@ -34,10 +34,9 @@ export class Application_Model implements Dependency {
         if (this._query_result === null) {
             this._query_result = new Query_Result_Model(this.ctx, subset);
         } else {
-            this._query_result.subset = subset;
+            this._query_result.set({ subset });
         }
 
-        this._query_result.execute_query();
         this._active = 'query_result';
         this.ctx.deps.changed(this);
     }

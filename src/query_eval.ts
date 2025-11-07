@@ -62,7 +62,7 @@ export async function find_cards_matching_query(
             }
         } catch (e) {
             throw Error(
-                `Couldn't evaluate query with "${cards.name(card_idx)}".`,
+                `Couldn't evaluate query with "${cards.name(card_idx) ?? card_idx}".`,
                 { cause: e },
             );
         }
