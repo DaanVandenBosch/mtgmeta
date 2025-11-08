@@ -774,6 +774,11 @@ export async function run_test_suite(cards: Cards) {
         ['Evermind', 'Intervention Pact'],
     );
     test_query(
+        'mana with {0} and other symbols',
+        'm:{0}{r}{r}{r} ball',
+        ['Ball Lightning', 'Jaya Ballard'],
+    );
+    test_query(
         'rarity=',
         'rarity=c m>=ggg',
         ['Kindercatch', 'Nyxborn Colossus'],

@@ -969,6 +969,11 @@ export function parse_mana_cost(input: string, start = 0): { cost: Mana_Cost, le
         pos += len;
     }
 
+    // Can't have a {0} symbol unless the cost is exactly {0}.
+    if (Object.keys(cost).length >= 2 && cost[MANA_GENERIC] === 0) {
+        delete cost[MANA_GENERIC];
+    }
+
     return { cost: freeze(cost), len: pos - start };
 }
 
