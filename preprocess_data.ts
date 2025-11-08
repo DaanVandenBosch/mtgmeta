@@ -1,12 +1,12 @@
 import { readdir, mkdir, unlink } from "node:fs/promises";
+import { assert } from "./src/core";
+import { Buffer } from "./src/buffer";
 
 // Cards to exclude from the final data.
 const EXCLUDED_PROMO_TYPES = ['playtest'];
 const EXCLUDED_SET_TYPES = ['memorabilia', 'token'];
 const EXCLUDED_LAYOUTS = ['scheme', 'token', 'planar', 'emblem', 'vanguard', 'double_faced_token'];
 // We also exclude purely digital cards.
-
-const TEXT_ENC = new TextEncoder();
 
 type Sf_Card = {
     id: string,
@@ -355,12 +355,6 @@ function is_uuid_string(str: string): boolean {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(str);
 }
 
-function assert(condition: boolean, message?: () => string): asserts condition {
-    if (!condition) {
-        throw Error(message ? message() : 'Assertion failed.');
-    }
-}
-
 function assert_is_array<T extends object>(o: T, prop: keyof T) {
     assert(Array.isArray(o[prop]), () => `Property ${String(prop)} is not an array.`);
 }
@@ -481,64 +475,6 @@ function validate(card: Sf_Card) {
     }
 }
 
-class Buf_Writer {
-    #view: DataView<ArrayBuffer>;
-    #le = true;
-    #pos = 0;
-
-    constructor(len: number) {
-        this.#view = new DataView(new ArrayBuffer(len));
-    }
-
-    get pos(): number {
-        return this.#pos;
-    }
-
-    private get buf(): ArrayBuffer {
-        return this.#view.buffer;
-    }
-
-    write_u8(n: number) {
-        this.#view.setUint8(this.#pos, n);
-        this.#pos++;
-    }
-
-    write_u16(n: number) {
-        this.#view.setUint16(this.#pos, n, this.#le);
-        this.#pos += 2;
-    }
-
-    write_u32(n: number) {
-        this.#view.setUint32(this.#pos, n, this.#le);
-        this.#pos += 4;
-    }
-
-    write_u64(n: bigint) {
-        this.#view.setBigUint64(this.#pos, n, this.#le);
-        this.#pos += 8;
-    }
-
-    write_utf8(s: string, n: number) {
-        TEXT_ENC.encodeInto(s, new Uint8Array(this.buf, this.#pos, n));
-        this.#pos += n;
-    }
-
-    set_u32(offset: number, n: number) {
-        this.check(offset, 4);
-        this.#view.setUint32(offset, n, this.#le);
-    }
-
-    array_buffer(): ArrayBuffer {
-        return this.buf.slice(0, this.#pos);
-    }
-
-    private check(offset: number, size: number) {
-        if (offset + size > this.#pos) {
-            throw Error(`Offset ${offset} with size ${size} is out of bounds.`);
-        }
-    }
-}
-
 async function get_card_data(sf_bulk_info: any, type: string): Promise<Sf_Card[]> {
     for (const data of sf_bulk_info.data) {
         if (data.type === type) {
@@ -649,7 +585,7 @@ function generate_index(
     const unsorted_groups = [...Map.groupBy(entries, e => e.value)];
     const groups = unsorted_groups.sort(([a], [b]) => a - b);
 
-    const buf = new Buf_Writer(5 * entries.length);
+    const buf = Buffer.of_size(5 * entries.length);
     write_header(buf, type, creation_time, prop)
     write_group_table(buf, groups);
 
@@ -666,15 +602,15 @@ function generate_index(
 
     return {
         prop,
-        index: buf.array_buffer(),
+        index: buf.copy(),
     };
 }
 
 /** Writes a 32-byte header. */
-function write_header(buf: Buf_Writer, type: number, creation_time: Date, order: string) {
+function write_header(buf: Buffer, type: number, creation_time: Date, order: string) {
     const start = buf.pos;
     // File starts with identifier.
-    buf.write_utf8("MTGI", 4);
+    buf.write_utf8_fixed("MTGI", 4);
     // Index format version.
     buf.write_u16(3);
     // Index type.
@@ -682,11 +618,11 @@ function write_header(buf: Buf_Writer, type: number, creation_time: Date, order:
     // Reserved byte.
     buf.write_u8(0);
     buf.write_u64(BigInt(creation_time.getTime()));
-    buf.write_utf8(order, 16);
+    buf.write_utf8_fixed(order, 16);
     assert(buf.pos === start + 32);
 }
 
-function write_group_table(buf: Buf_Writer, groups: Array<[any, Array<any>]>) {
+function write_group_table(buf: Buffer, groups: Array<[any, Array<any>]>) {
     // Group count.
     buf.write_u32(groups.length);
 

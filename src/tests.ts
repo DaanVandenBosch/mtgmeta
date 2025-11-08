@@ -16,7 +16,7 @@ import { simplify_query } from "./query_combination";
 import { find_cards_matching_query } from "./query_eval";
 import { remove_parenthesized_text, type Cards } from "./cards";
 import { Subset_Store } from "./subset";
-import { query_hash } from "./query_executor";
+import { query_hash } from "./query_hash";
 
 export async function run_test_suite(cards: Cards) {
     Console_Logger.time('run_test_suite');
@@ -897,7 +897,7 @@ export async function run_test_suite(cards: Cards) {
     test_query(
         'negation',
         '-t:land forest',
-        ['Deep Forest Hermit', 'Forest Bear', 'Jaheira, Friend of the Forest'],
+        ['Deep Forest Hermit', 'Forest Bear', 'Hei Bai, Forest Guardian', 'Jaheira, Friend of the Forest'],
     );
     // SF seems to interpret this as "name does not contain the empty string".
     test_query(
