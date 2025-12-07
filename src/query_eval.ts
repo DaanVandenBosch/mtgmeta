@@ -353,13 +353,17 @@ function get_compare(
     condition: Property_Condition,
     logger: Logger,
 ): (value: any, cond: Property_Condition) => boolean {
+    // Use a helper to function to avoid having to cast in every return statement.
     return get_compare_helper(condition, logger);
 }
 
 function get_compare_helper(
     condition: Property_Condition,
     logger: Logger,
-): any {
+): (value: any, cond: any) => boolean {
+    // The given condition is the same condition that will be passed to the returned function. We
+    // could return a function with a closure over the given condition that only takes a value as
+    // argument, but this makes query evaluation as whole about 5% slower.
     switch (condition.type) {
         case 'even':
             return (value: number, _cond: Predicate_Condition) => value % 2 === 0;
@@ -370,8 +374,8 @@ function get_compare_helper(
         case 'range': {
             return (value: any, cond: Range_Condition) => {
                 // Can't use === because it doesn't work as expected with Date objects.
-                return (cond.start_inc ? !(value < cond.start) : value > cond.start)
-                    && (cond.end_inc ? !(value > cond.end) : value < cond.end);
+                return (cond.start_inc ? value >= cond.start : value > cond.start)
+                    && (cond.end_inc ? value <= cond.end : value < cond.end);
             }
         }
     }
