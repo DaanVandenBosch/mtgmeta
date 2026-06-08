@@ -689,7 +689,7 @@ export async function run_test_suite(cards: Cards) {
     test_query(
         'mana=',
         'm=rgwu',
-        ['Aragorn, the Uniter', 'Avatar Aang // Aang, Master of Elements', 'Elusen, the Giving', 'Ink-Treader Nephilim', 'Kynaios and Tiro of Meletis', 'Omnath, Locus of Creation'],
+        ['Aragorn, the Uniter', 'Avatar Aang // Aang, Master of Elements', 'Elusen, the Giving', 'Ink-Treader Nephilim', 'Kynaios and Tiro of Meletis', 'Omnath, Locus of Creation', 'The Fantastic Four'],
     );
     test_query(
         'mana!=',
@@ -851,7 +851,7 @@ export async function run_test_suite(cards: Cards) {
     test_query(
         'color< with number',
         'c<2 abundant',
-        ['Abundant Growth', 'Abundant Harvest', 'Abundant Maw'],
+        ['Abundant Countryside', 'Abundant Growth', 'Abundant Harvest', 'Abundant Maw'],
     );
     test_query(
         'identity=',
@@ -902,7 +902,7 @@ export async function run_test_suite(cards: Cards) {
     test_query(
         'negation',
         '-t:land forest',
-        ['Deep Forest Hermit', 'Forest Bear', 'Hei Bai, Forest Guardian', 'Jaheira, Friend of the Forest'],
+        ['Deep Forest Hermit', 'Forest Bear', 'Great Forest Druid', 'Hei Bai, Forest Guardian', 'Jaheira, Friend of the Forest'],
     );
     // SF seems to interpret this as "name does not contain the empty string".
     test_query(
