@@ -46,7 +46,7 @@ export class Query_Result_View implements View, Leaf_Dependent {
     }
 
     get hidden(): boolean {
-        return this.el.hidden;
+        return this.el.hidden === true;
     }
 
     set hidden(hidden: boolean) {

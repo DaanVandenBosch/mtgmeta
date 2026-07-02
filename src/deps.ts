@@ -93,17 +93,15 @@ export class Deps {
         if (!this.update_scheduled) {
             requestAnimationFrame(() => {
                 this.update_scheduled = false;
+                const oods = new Set(this.out_of_date_dependents);
 
-                try {
-                    for (const dependent of this.out_of_date_dependents) {
-                        try {
-                            dependent.update();
-                        } catch (e) {
-                            this.logger.error(e);
-                        }
+                for (const dependent of oods) {
+                    try {
+                        this.out_of_date_dependents.delete(dependent);
+                        dependent.update();
+                    } catch (e) {
+                        this.logger.error(e);
                     }
-                } finally {
-                    this.out_of_date_dependents.clear();
                 }
             });
             this.update_scheduled = true;

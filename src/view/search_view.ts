@@ -100,7 +100,7 @@ export class Search_View implements View, Leaf_Dependent {
     }
 
     get hidden(): boolean {
-        return this.inputs_el.hidden;
+        return this.inputs_el.hidden === true;
     }
 
     set hidden(hidden: boolean) {

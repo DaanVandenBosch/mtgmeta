@@ -10,6 +10,10 @@ async function init() {
     ctx.logger.time('init');
 
     const app = new Application_Model(ctx);
+
+    // Make entire application state easily available in debugger.
+    (globalThis as any).app = app;
+
     new Application_View(ctx, app, get_el(document, '.application'));
     await ctx.cards.load_promise;
 

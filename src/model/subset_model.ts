@@ -26,11 +26,12 @@ export class Subset_Model implements Dependency {
     }
 
     async add(name: string) {
+        const name_lc = name.toLocaleLowerCase('en');
         const condition = this.subset.query.condition;
         let new_condition: Condition;
 
         if (condition.type === 'eq') {
-            if (condition.value === name) {
+            if (condition.value === name_lc) {
                 return;
             }
 
@@ -38,13 +39,13 @@ export class Subset_Model implements Dependency {
                 type: 'or',
                 conditions: freeze([
                     condition,
-                    freeze({ type: 'eq', prop: 'name', value: name }),
+                    freeze({ type: 'eq', prop: 'name_search', value: name_lc }),
                 ]),
             });
         } else if (condition.type === 'or') {
             const found = condition.conditions.find(cond => {
                 if (cond.type === 'eq') {
-                    return cond.value === name;
+                    return cond.value === name_lc;
                 } else {
                     this.ctx.logger.error(
                         `Unexpected condition type ${cond.type} inside of ${condition.type} condition.`,
@@ -61,11 +62,11 @@ export class Subset_Model implements Dependency {
                 type: 'or',
                 conditions: freeze([
                     ...condition.conditions,
-                    freeze({ type: 'eq', prop: 'name', value: name }),
+                    freeze({ type: 'eq', prop: 'name_search', value: name_lc }),
                 ]),
             });
         } else if (condition.type === 'false') {
-            new_condition = freeze({ type: 'eq', prop: 'name', value: name });
+            new_condition = freeze({ type: 'eq', prop: 'name_search', value: name_lc });
         } else {
             this.ctx.logger.error(`Unexpected condition type ${condition.type}.`);
 
@@ -77,13 +78,13 @@ export class Subset_Model implements Dependency {
                 type: 'or',
                 conditions: freeze([
                     condition,
-                    freeze({ type: 'eq', prop: 'name', value: name }),
+                    freeze({ type: 'eq', prop: 'name_search', value: name_lc }),
                 ]),
             });
         }
 
         const props = new Set(this.subset.query.props);
-        props.add('name');
+        props.add('name_search');
 
         this.subset = freeze({
             id: this.subset.id,

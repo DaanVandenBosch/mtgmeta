@@ -22,4 +22,6 @@ bun preprocess
 
 ## TODO
 
+- Query.props can't contain all properties of subset conditions because they
+  might change.
 - Add the custom cards from Caleb Ganon's Synergy cube.
