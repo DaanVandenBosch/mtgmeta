@@ -92,18 +92,30 @@ export class Deps {
 
         if (!this.update_scheduled) {
             requestAnimationFrame(() => {
-                this.update_scheduled = false;
-                const oods = new Set(this.out_of_date_dependents);
+                // These nested loops exist because leaf nodes can be invalidated while updating
+                // dependents. This is not the intended use of the system but we support it anyway.
+                while (this.out_of_date_dependents.size) {
+                    // Copy the set because dependents can be added to it while we're looping over
+                    // it.
+                    const oods = new Set(this.out_of_date_dependents);
 
-                for (const dependent of oods) {
-                    try {
+                    for (const dependent of oods) {
+                        // Remove the dependent from the set before calling update, because the
+                        // update method might add it again and in that case we want to process it
+                        // again in the next iteration of the outer loop.
                         this.out_of_date_dependents.delete(dependent);
-                        dependent.update();
-                    } catch (e) {
-                        this.logger.error(e);
+
+                        try {
+                            dependent.update();
+                        } catch (e) {
+                            this.logger.error(e);
+                        }
                     }
                 }
+
+                this.update_scheduled = false;
             });
+
             this.update_scheduled = true;
         }
     }
