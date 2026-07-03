@@ -653,12 +653,12 @@ export async function run_test_suite(cards: Cards) {
     test_query(
         'name, match split cards inexact',
         "fire//ice",
-        ['Fire // Ice', 'Ghostfire Slice', 'Sword of Fire and Ice'],
+        ['Fire // Ice', 'Ghostfire Slice', 'Iceman and Firestar', 'Sword of Fire and Ice'],
     );
     test_query(
         'name, match split cards with backslash',
         "fire\\ice",
-        ['Fire // Ice', 'Ghostfire Slice', 'Sword of Fire and Ice'],
+        ['Fire // Ice', 'Ghostfire Slice', 'Iceman and Firestar', 'Sword of Fire and Ice'],
     );
     test_query(
         "name, match double-faced cards",
