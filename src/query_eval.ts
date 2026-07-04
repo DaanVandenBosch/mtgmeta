@@ -110,19 +110,16 @@ export class Query_Evaluator {
 
         if (this.small_set_optimization && version_count <= 32) {
             version_idxs = Bitset_32.with_cap(version_count);
-            version_idxs.fill();
             set_type = Uint_Set_Type.BIT32;
         } else if (this.bitset) {
-            Bitset.reset_mem();
             version_idxs = Bitset.with_cap(version_count);
-            version_idxs.fill();
             set_type = Uint_Set_Type.BIT;
         } else {
-            Array_Set.reset_mem();
-            version_idxs = new Array_Set();
-            version_idxs.fill_to(version_count);
+            version_idxs = Array_Set.with_cap(version_count);
             set_type = Uint_Set_Type.ARRAY;
         }
+
+        version_idxs.fill();
 
         this.evaluate_condition(this.query.condition, version_idxs, set_type);
 
@@ -145,16 +142,16 @@ export class Query_Evaluator {
                 break;
             }
             case 'or': {
-                const idxs = version_idxs.copy();
+                const orig_version_idxs = version_idxs.copy();
                 const sub_idxs = version_idxs.copy();
                 version_idxs.clear();
 
                 for (const cond of condition.conditions) {
-                    idxs.copy_into(sub_idxs);
+                    orig_version_idxs.copy_into(sub_idxs);
                     this.evaluate_condition(cond, sub_idxs, set_type);
                     version_idxs.union(sub_idxs);
 
-                    if (version_idxs.size === idxs.size) {
+                    if (version_idxs.size === orig_version_idxs.size) {
                         break;
                     }
                 }
@@ -261,13 +258,13 @@ export class Query_Evaluator {
         version_idxs: Bitset,
     ) {
         if (PER_VERSION_PROPS.includes(condition.prop)) {
-            const m_off = version_idxs.m_off;
-            const len = version_idxs.m_end - m_off;
+            const version_idxs_data = version_idxs.data;
+            const len = version_idxs_data.length;
             let bits_left = version_idxs.cap;
             let size = version_idxs.size;
 
             for (let i = 0; i < len; i++, bits_left -= 32) {
-                let slot = Bitset.mem[m_off + i];
+                let slot = version_idxs_data[i];
 
                 if (slot === 0) {
                     continue;
@@ -288,7 +285,7 @@ export class Query_Evaluator {
                     }
                 }
 
-                Bitset.mem[m_off + i] = slot;
+                version_idxs_data[i] = slot;
             }
 
             version_idxs.size = size;

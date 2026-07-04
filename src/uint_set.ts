@@ -1,7 +1,5 @@
 import { pop_count_32 } from "./core";
 
-const memory = new ArrayBuffer(256 * 1024);
-
 /** Set optimized for unsigned integers. */
 export interface Uint_Set {
     size: number;
@@ -19,42 +17,23 @@ export interface Uint_Set {
 }
 
 export class Bitset implements Uint_Set {
-    static readonly mem = new Uint32Array(memory);
-    static mem_offset = 0;
-
-    static reset_mem() {
-        this.mem_offset = 0;
-    }
-
     static with_cap(cap: number): Bitset {
-        const len = (cap + 31) >>> 5;
-        const new_set = new Bitset(cap, len);
-        new_set.clear();
-        return new_set;
+        return new Bitset(new Uint32Array((cap + 31) >>> 5), cap);
     }
 
-    /** Offset into memory. */
-    m_off: number;
-    /** Memory end. */
-    m_end: number;
+    data: Uint32Array;
     cap: number;
     size: number;
 
-    constructor(cap: number, len: number) {
-        if (Bitset.mem_offset + len > Bitset.mem.byteLength) {
-            throw Error(`Out of bitset memory.`);
-        }
-
-        this.m_off = Bitset.mem_offset;
-        Bitset.mem_offset += len;
-        this.m_end = Bitset.mem_offset;
+    constructor(data: Uint32Array, cap: number) {
+        this.data = data;
         this.cap = cap;
         this.size = 0;
     }
 
     copy(): Bitset {
-        const new_set = new Bitset(this.cap, this.m_end - this.m_off);
-        this.copy_into(new_set);
+        const new_set = new Bitset(new Uint32Array(this.data), this.cap);
+        new_set.size = this.size;
         return new_set;
     }
 
@@ -63,13 +42,13 @@ export class Bitset implements Uint_Set {
             throw Error(`Capacities ${this.cap} and ${other.cap} don't match.`);
         }
 
-        Bitset.mem.copyWithin(other.m_off, this.m_off, this.m_end);
+        other.data.set(this.data);
         other.size = this.size;
     }
 
     has(value: number): boolean {
         const slot_offset = value >>> 5;
-        const slot = Bitset.mem[this.m_off + slot_offset];
+        const slot = this.data[slot_offset];
         const bit_mask = 1 << (value & 0b11111);
         return (slot & bit_mask) !== 0;
     }
@@ -79,10 +58,11 @@ export class Bitset implements Uint_Set {
             return null;
         }
 
-        const m_end = this.m_end;
+        const data = this.data;
+        const len = data.length;
 
-        for (let i = this.m_off; i < m_end; i++) {
-            const slot = Bitset.mem[i];
+        for (let i = 0; i < len; i++) {
+            const slot = data[i];
 
             for (let j = 0; j < 32; j++) {
                 const bit_mask = 1 << j;
@@ -101,11 +81,12 @@ export class Bitset implements Uint_Set {
             throw Error(`Value ${value} out of bounds for capacity ${this.cap}.`);
         }
 
+        const data = this.data;
         const slot_offset = value >>> 5;
-        const slot = Bitset.mem[this.m_off + slot_offset];
+        const slot = data[slot_offset];
         const bit_mask = 1 << (value & 0b11111);
         const new_slot = slot | bit_mask;
-        Bitset.mem[this.m_off + slot_offset] = new_slot;
+        data[slot_offset] = new_slot;
 
         if (new_slot !== slot) {
             this.size += 1;
@@ -113,10 +94,11 @@ export class Bitset implements Uint_Set {
     }
 
     fill() {
-        const m_end = this.m_end;
+        const data = this.data;
         const cap = this.cap;
-        Bitset.mem.fill(0xFFFFFFFF, this.m_off, m_end - 1);
-        Bitset.mem[m_end - 1] = (1 << (cap & 0b11111)) - 1;
+        const len = data.length;
+        data.fill(0xFFFFFFFF, 0, len - 1);
+        data[len - 1] = (1 << (cap & 0b11111)) - 1;
         this.size = cap;
     }
 
@@ -125,11 +107,12 @@ export class Bitset implements Uint_Set {
             throw Error(`Value ${value} out of bounds for capacity ${this.cap}.`);
         }
 
+        const data = this.data;
         const slot_offset = value >>> 5;
-        const slot = Bitset.mem[this.m_off + slot_offset];
+        const slot = data[slot_offset];
         const bit_mask = 1 << (value & 0b11111);
         const new_slot = slot & ~bit_mask;
-        Bitset.mem[this.m_off + slot_offset] = new_slot;
+        data[slot_offset] = new_slot;
 
         if (new_slot !== slot) {
             this.size -= 1;
@@ -137,19 +120,20 @@ export class Bitset implements Uint_Set {
     }
 
     clear() {
-        Bitset.mem.fill(0, this.m_off, this.m_end);
+        this.data.fill(0);
         this.size = 0;
     }
 
     invert() {
-        const m_end = this.m_end;
+        const data = this.data;
+        const len = data.length;
         const cap = this.cap;
 
-        for (let i = this.m_off; i < m_end - 1; i++) {
-            Bitset.mem[i] = ~Bitset.mem[i];
+        for (let i = 0; i < len - 1; i++) {
+            data[i] = ~data[i];
         }
 
-        Bitset.mem[m_end - 1] = ~Bitset.mem[m_end - 1] & ((1 << (cap & 0b11111)) - 1);
+        data[len - 1] = ~data[len - 1] & ((1 << (cap & 0b11111)) - 1);
         this.size = cap - this.size;
     }
 
@@ -158,17 +142,16 @@ export class Bitset implements Uint_Set {
             throw Error(`Capacities ${this.cap} and ${other.cap} don't match.`);
         }
 
-        const m_off = this.m_off;
-        const m_end = this.m_end;
-        const other_m_off = other.m_off;
-        const end = m_end - m_off;
+        const data = this.data;
+        const len = data.length;
+        const other_data = other.data;
         let size = 0;
 
-        for (let i = 0; i < end; i++) {
-            let slot = Bitset.mem[m_off + i];
-            slot |= Bitset.mem[other_m_off + i];
+        for (let i = 0; i < len; i++) {
+            let slot = data[i];
+            slot |= other_data[i];
             size += pop_count_32(slot);
-            Bitset.mem[m_off + i] = slot;
+            data[i] = slot;
         }
 
         this.size = size;
@@ -179,28 +162,28 @@ export class Bitset implements Uint_Set {
             throw Error(`Capacities ${this.cap} and ${other.cap} don't match.`);
         }
 
-        const m_off = this.m_off;
-        const m_end = this.m_end;
-        const other_m_off = other.m_off;
-        const end = m_end - m_off;
+        const data = this.data;
+        const len = data.length;
+        const other_data = other.data;
         let size = 0;
 
-        for (let i = 0; i < end; i++) {
-            let slot = Bitset.mem[m_off + i];
-            slot &= ~Bitset.mem[other_m_off + i];
+        for (let i = 0; i < len; i++) {
+            let slot = data[i];
+            slot &= ~other_data[i];
             size += pop_count_32(slot);
-            Bitset.mem[m_off + i] = slot;
+            data[i] = slot;
         }
 
         this.size = size;
     }
 
     to_array(): number[] {
-        const m_end = this.m_end;
+        const data = this.data;
+        const len = data.length;
         const array = [];
 
-        for (let i = this.m_off; i < m_end; i++) {
-            const slot = Bitset.mem[i];
+        for (let i = 0; i < len; i++) {
+            const slot = data[i];
 
             for (let j = 0; j < 32; j++) {
                 const bit_mask = 1 << j;
@@ -353,48 +336,43 @@ export class Bitset_32 implements Uint_Set {
 }
 
 export class Array_Set implements Uint_Set {
-    static readonly CAP = 1024;
-    static readonly mem = new Uint16Array(memory);
-    static mem_offset = 0;
-
-    static reset_mem() {
-        this.mem_offset = 0;
+    static with_cap(cap: number): Array_Set {
+        return new Array_Set(new Uint16Array(cap));
     }
 
-    offset: number;
+    data: Uint16Array;
     size: number;
 
-    constructor() {
-        const mem_offset = Array_Set.mem_offset;
-
-        if (mem_offset >= Array_Set.mem.byteLength) {
-            throw Error(`Max sets reached.`);
-        }
-
-        this.offset = mem_offset;
-        Array_Set.mem_offset = mem_offset + Array_Set.CAP;
+    constructor(data: Uint16Array) {
+        this.data = data;
         this.size = 0;
     }
 
     copy(): Array_Set {
-        const new_set = new Array_Set();
-        this.copy_into(new_set);
+        const new_set = new Array_Set(new Uint16Array(this.data));
+        new_set.size = this.size;
         return new_set;
     }
 
     copy_into(other: Array_Set) {
-        const offset = this.offset;
+        const data = this.data;
+        const other_data = other.data;
+
+        if (data.length !== other_data.length) {
+            throw Error(`Capacities ${data.length} and ${other_data.length} don't match.`);
+        }
+
         const size = this.size;
-        Array_Set.mem.copyWithin(other.offset, offset, offset + size);
+        other_data.set(data.subarray(0, size));
         other.size = size;
     }
 
     has(value: number): boolean {
-        const offset = this.offset;
-        const end = offset + this.size;
+        const data = this.data;
+        const size = this.size;
 
-        for (let i = offset; i < end; i++) {
-            const v = Array_Set.mem[i];
+        for (let i = 0; i < size; i++) {
+            const v = data[i];
 
             if (v === value) {
                 return true;
@@ -407,7 +385,7 @@ export class Array_Set implements Uint_Set {
     }
 
     at(idx: number): number {
-        return Array_Set.mem[this.offset + idx];
+        return this.data[idx];
     }
 
     first_or_null(): number | null {
@@ -415,70 +393,66 @@ export class Array_Set implements Uint_Set {
             return null;
         }
 
-        return Array_Set.mem[this.offset];
+        return this.data[0];
     }
 
     insert(value: number) {
-        const offset = this.offset;
+        const data = this.data;
         const size = this.size;
-        const end = offset + size;
 
-        if (size >= Array_Set.CAP) {
+        if (size >= data.length) {
             throw Error(`Capacity reached.`);
         }
 
-        for (let i = offset; i < end; i++) {
-            const v = Array_Set.mem[i];
+        for (let i = 0; i < size; i++) {
+            const v = data[i];
 
             if (v === value) {
                 return;
             } else if (v > value) {
-                Array_Set.mem.copyWithin(i + 1, i, end);
-                Array_Set.mem[i] = value;
+                data.copyWithin(i + 1, i, size);
+                data[i] = value;
                 this.size = size + 1;
                 return;
             }
         }
 
-        Array_Set.mem[end] = value;
+        data[size] = value;
         this.size = size + 1;
     }
 
     insert_unchecked(value: number) {
+        const data = this.data;
         const size = this.size;
 
-        if (size >= Array_Set.CAP) {
+        if (size >= data.length) {
             throw Error(`Capacity reached.`);
         }
 
-        Array_Set.mem[this.offset + size] = value;
+        data[size] = value;
         this.size = size + 1;
     }
 
-    fill_to(cap: number) {
-        if (cap >= Array_Set.CAP) {
-            throw Error(`Capacity reached.`);
+    fill() {
+        const data = this.data;
+        const len = data.length;
+
+        for (let value = 0; value < len; value++) {
+            data[value] = value;
         }
 
-        const offset = this.offset;
-
-        for (let value = 0; value < cap; value++) {
-            Array_Set.mem[offset + value] = value;
-        }
-
-        this.size = cap;
+        this.size = len;
     }
 
     delete(value: number) {
-        const offset = this.offset;
+        const data = this.data;
         const size = this.size;
-        const end = offset + size;
 
-        for (let i = offset; i < end; i++) {
-            const v = Array_Set.mem[i];
+        for (let i = 0; i < size; i++) {
+            const v = data[i];
 
             if (v === value) {
-                Array_Set.mem.copyWithin(i, i + 1, end);
+                data.copyWithin(i, i + 1, size);
                 this.size = size - 1;
                 return;
             } else if (v > value) {
@@ -489,10 +463,9 @@ export class Array_Set implements Uint_Set {
     }
 
     delete_at(idx: number) {
-        const offset = this.offset;
-        const value_offset = offset + idx;
+        const data = this.data;
         const size = this.size;
-        Array_Set.mem.copyWithin(value_offset, value_offset + 1, offset + size);
+        data.copyWithin(idx, idx + 1, size);
         this.size = size - 1;
     }
 
@@ -501,31 +474,31 @@ export class Array_Set implements Uint_Set {
     }
 
     union(other: Array_Set) {
-        const offset = this.offset;
-        const other_offset = other.offset;
+        const data = this.data;
         let size = this.size;
-        const other_end = other_offset + other.size;
-        let i = offset;
+        const other_data = other.data;
+        const other_size = other.size;
+        let i = 0;
 
-        outer: for (let j = other_offset; j < other_end; j++) {
-            const other_value = Array_Set.mem[j];
+        outer: for (let j = 0; j < other_size; j++) {
+            const other_value = other_data[j];
 
             for (; ;) {
-                if (i >= offset + size) {
-                    Array_Set.mem.copyWithin(i, j, other_end);
-                    size += other_end - j;
+                if (i >= size) {
+                    data.set(other_data.subarray(j, other_size), i);
+                    size += other_size - j;
                     break outer;
                 }
 
-                const value = Array_Set.mem[i];
+                const value = data[i];
 
                 if (other_value === value) {
                     i++;
                     break;
                 } else if (other_value < value) {
-                    Array_Set.mem.copyWithin(i + 1, i, offset + size);
-                    Array_Set.mem[i] = other_value;
-                    size += 1;
+                    data.copyWithin(i + 1, i, size);
+                    data[i] = other_value;
+                    size++;
                     i++;
                     break;
                 } else {
@@ -538,23 +511,23 @@ export class Array_Set implements Uint_Set {
     }
 
     diff(other: Array_Set) {
-        const offset = this.offset;
-        const other_offset = other.offset;
+        const data = this.data;
         let size = this.size;
-        let i = offset + size - 1;
+        const other_data = other.data;
+        let i = size - 1;
 
-        outer: for (let j = other_offset + other.size - 1; j >= other_offset; j--) {
-            const other_value = Array_Set.mem[j];
+        outer: for (let j = other.size - 1; j >= 0; j--) {
+            const other_value = other_data[j];
 
             for (; ;) {
-                if (i < offset) {
+                if (i < 0) {
                     break outer;
                 }
 
-                const value = Array_Set.mem[i];
+                const value = data[i];
 
                 if (other_value === value) {
-                    Array_Set.mem.copyWithin(i, i + 1, offset + size);
+                    data.copyWithin(i, i + 1, size);
                     size -= 1;
                     break;
                 } else if (other_value > value) {
@@ -569,12 +542,12 @@ export class Array_Set implements Uint_Set {
     }
 
     to_array(): number[] {
-        const offset = this.offset;
-        const end = offset + this.size;
+        const data = this.data;
+        const size = this.size;
         const array = [];
 
-        for (let i = offset; i < end; i++) {
-            array.push(Array_Set.mem[i]);
+        for (let i = 0; i < size; i++) {
+            array.push(data[i]);
         }
 
         return array;

@@ -56,7 +56,7 @@ export async function run_test_suite(cards: Cards) {
                 subset_store.id_to_subset,
                 parse_query(subset_store.name_to_subset, query_string),
             );
-            const result = await find_cards_matching_query(
+            const result = find_cards_matching_query(
                 cards,
                 subset_store,
                 query,
@@ -88,7 +88,7 @@ export async function run_test_suite(cards: Cards) {
                     }
                 }
 
-                await find_cards_matching_query(
+                find_cards_matching_query(
                     cards,
                     subset_store,
                     query,
@@ -113,24 +113,12 @@ export async function run_test_suite(cards: Cards) {
         assert_eq(pop_count_32(0b111000), 3);
     });
     test('Bitset is instantiated correctly.', () => {
-        Bitset.reset_mem();
-
-        for (let i = 0; i < 32; i++) {
-            Bitset.mem[i] = 0xFFFFFFFF;
-        }
-
         const s = Bitset.with_cap(1000);
-        assert_eq(s.m_off, 0);
-        assert_eq(s.m_end, 32);
+        assert_eq(s.data.length, 32);
         assert_eq(s.cap, 1000);
         assert_eq(s.size, 0);
-
-        for (let i = s.m_off; i < s.m_end; i++) {
-            assert_eq(Bitset.mem[i], 0);
-        }
     });
     test('Bitset fill.', () => {
-        Bitset.reset_mem();
         const s = Bitset.with_cap(40);
         s.fill();
 
@@ -141,10 +129,9 @@ export async function run_test_suite(cards: Cards) {
         }
 
         // Only 8 bits of the last u32 should be set.
-        assert_eq(Bitset.mem[s.m_end - 1], 0xFF);
+        assert_eq(s.data[s.data.length - 1], 0xFF);
     });
     test('Bitset delete.', () => {
-        Bitset.reset_mem();
         const s = Bitset.with_cap(40);
         s.fill();
 
@@ -166,7 +153,6 @@ export async function run_test_suite(cards: Cards) {
         assert(!s.has(39));
     });
     test('Bitset invert.', () => {
-        Bitset.reset_mem();
         const s = Bitset.with_cap(36);
 
         for (let i = 0; i < 36; i++) {
@@ -188,10 +174,9 @@ export async function run_test_suite(cards: Cards) {
         }
 
         // Only 3 bits of the last u32 should be set.
-        assert_eq(Bitset.mem[s.m_end - 1], 0b1101);
+        assert_eq(s.data[s.data.length - 1], 0b1101);
     });
     test('Bitset union_in.', () => {
-        Bitset.reset_mem();
         const a = Bitset.with_cap(35);
         const b = Bitset.with_cap(35);
 
@@ -224,7 +209,6 @@ export async function run_test_suite(cards: Cards) {
         assert(!a.has(34));
     });
     test('Bitset diff_in.', () => {
-        Bitset.reset_mem();
         const a = Bitset.with_cap(40);
         const b = Bitset.with_cap(40);
 
@@ -358,15 +342,12 @@ export async function run_test_suite(cards: Cards) {
         }
     });
     test('Array_Set is instantiated correctly.', () => {
-        Array_Set.reset_mem();
-
-        const s = new Array_Set;
-        assert_eq(s.offset, 0);
+        const s = Array_Set.with_cap(1000);
+        assert_eq(s.data.length, 1000);
         assert_eq(s.size, 0);
     });
     test('Array_Set delete.', () => {
-        Array_Set.reset_mem();
-        const s = new Array_Set;
+        const s = Array_Set.with_cap(40);
 
         for (let i = 0; i < 40; i++) {
             s.insert_unchecked(i);
@@ -390,9 +371,8 @@ export async function run_test_suite(cards: Cards) {
         assert(!s.has(39));
     });
     test('Array_Set union_in.', () => {
-        Array_Set.reset_mem();
-        const a = new Array_Set;
-        const b = new Array_Set;
+        const a = Array_Set.with_cap(10);
+        const b = Array_Set.with_cap(10);
 
         a.insert_unchecked(1);
         a.insert_unchecked(3);
@@ -418,9 +398,8 @@ export async function run_test_suite(cards: Cards) {
         }
     });
     test('Array_Set diff_in.', () => {
-        Array_Set.reset_mem();
-        const a = new Array_Set;
-        const b = new Array_Set;
+        const a = Array_Set.with_cap(20);
+        const b = Array_Set.with_cap(20);
 
         for (let i = 0; i < 40; i++) {
             if (i % 2 === 0) {
