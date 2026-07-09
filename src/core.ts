@@ -2,6 +2,7 @@ const freeze = Object.freeze;
 
 export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
+export const EMPTY_SET: ReadonlySet<never> = freeze(new Set<never>);
 export const EMPTY_MAP: ReadonlyMap<never, never> = freeze(new Map<never, never>);
 
 export const TEXT_ENCODER = new TextEncoder;

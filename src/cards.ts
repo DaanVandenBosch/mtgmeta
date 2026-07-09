@@ -364,6 +364,10 @@ export class Cards {
         return promise;
     }
 
+    get_all<T>(prop: Prop): readonly T[] | null {
+        return this.props.get(prop) ?? null;
+    }
+
     /** Returns the value or values of a card property. */
     get<T>(idx: number, prop: Prop): T | null {
         return this.props.get(prop)?.at(idx) ?? null;

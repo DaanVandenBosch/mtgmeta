@@ -17,10 +17,13 @@ import { find_cards_matching_query } from "./query_eval";
 import { remove_parenthesized_text, type Cards } from "./cards";
 import { Subset_Store } from "./subset";
 import { query_hash } from "./query_hash";
+import { Query_Engine } from "./query_engine";
 
 export async function run_test_suite(cards: Cards) {
     Console_Logger.time('run_test_suite');
     Console_Logger.time('run_test_suite_setup');
+
+    const engine = new Query_Engine(cards);
 
     const tests: { name: string, execute: (logger: Logger) => void | Promise<void> }[] = [];
 
@@ -38,70 +41,89 @@ export async function run_test_suite(cards: Cards) {
         const expected = new Set(expected_matches);
         assert(expected.size <= MAX_MATCHES);
 
-        test(`${name} [${query_string}]`, async logger => {
-            const subset_store = new Subset_Store(logger);
+        function test_query_helper(
+            method: string,
+            execute_query: (
+                subset_store: Subset_Store,
+                query: Query,
+                card_logger: (idx: number) => Logger,
+            ) => ReadonlyMap<number, number>,
+        ) {
+            test(`${name} [${method}] [${query_string}]`, async logger => {
+                const subset_store = new Subset_Store(logger);
 
-            if (options.subsets) {
-                for (const [name, query] of Object.entries(options.subsets)) {
-                    const subset = subset_store.create(
-                        crypto.randomUUID(),
-                        name,
-                        parse_query(EMPTY_MAP, query),
-                    );
-                    assert(subset !== null);
+                if (options.subsets) {
+                    for (const [name, query] of Object.entries(options.subsets)) {
+                        const subset = subset_store.create(
+                            crypto.randomUUID(),
+                            name,
+                            parse_query(EMPTY_MAP, query),
+                        );
+                        assert(subset !== null);
+                    }
                 }
-            }
 
-            const query = simplify_query(
-                subset_store.id_to_subset,
-                parse_query(subset_store.name_to_subset, query_string),
-            );
-            const result = find_cards_matching_query(
+                const query = simplify_query(
+                    subset_store.id_to_subset,
+                    parse_query(subset_store.name_to_subset, query_string),
+                );
+                const result = execute_query(
+                    subset_store,
+                    query,
+                    () => Nop_Logger,
+                );
+
+                const actual = new Set([...result.keys()].map(idx => cards.name(idx)));
+
+                if (!deep_eq(actual, expected)) {
+                    const missing_set = expected.difference(actual);
+                    const unexpected_set = actual.difference(expected);
+                    const log_set = new Set();
+
+                    for (const c of missing_set) {
+                        log_set.add(c);
+
+                        // Ensure we log at most 10 cards.
+                        if (log_set.size >= 10) {
+                            break;
+                        }
+                    }
+
+                    for (const c of unexpected_set) {
+                        log_set.add(c);
+
+                        // Ensure we log at most 10 cards.
+                        if (log_set.size >= 10) {
+                            break;
+                        }
+                    }
+
+                    execute_query(
+                        subset_store,
+                        query,
+                        idx => (log_set.has(cards.name(idx)) ? logger : Nop_Logger),
+                    );
+
+                    const max_warn = unexpected_set.size > 5 ? ' (showing max. 5)' : '';
+
+                    throw Error(
+                        `Expected to get ${expected.size} matches, got ${actual.size}. Also expected: ${to_string(missing_set)}, didn't expect: ${to_string([...unexpected_set].slice(0, 5))}${max_warn}.`
+                    );
+                }
+            });
+        }
+
+        test_query_helper(
+            'eval',
+            (subset_store, query, card_logger) => find_cards_matching_query(
                 cards,
                 subset_store,
                 query,
-                () => Nop_Logger,
-            );
+                card_logger,
+            ),
+        );
 
-            const actual = new Set([...result.keys()].map(idx => cards.name(idx)));
-
-            if (!deep_eq(actual, expected)) {
-                const missing_set = expected.difference(actual);
-                const unexpected_set = actual.difference(expected);
-                const log_set = new Set();
-
-                for (const c of missing_set) {
-                    log_set.add(c);
-
-                    // Ensure we log at most 10 cards.
-                    if (log_set.size >= 10) {
-                        break;
-                    }
-                }
-
-                for (const c of unexpected_set) {
-                    log_set.add(c);
-
-                    // Ensure we log at most 10 cards.
-                    if (log_set.size >= 10) {
-                        break;
-                    }
-                }
-
-                find_cards_matching_query(
-                    cards,
-                    subset_store,
-                    query,
-                    idx => (log_set.has(cards.name(idx)) ? logger : Nop_Logger),
-                );
-
-                const max_warn = unexpected_set.size > 5 ? ' (showing max. 5)' : '';
-
-                throw Error(
-                    `Expected to get ${expected.size} matches, got ${actual.size}. Also expected: ${to_string(missing_set)}, didn't expect: ${to_string([...unexpected_set].slice(0, 5))}${max_warn}.`
-                );
-            }
-        });
+        test_query_helper('engine', (_subset_store, query) => engine.execute(query));
     }
 
     test('pop_count_32', () => {
