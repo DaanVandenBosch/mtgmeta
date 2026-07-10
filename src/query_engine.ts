@@ -8,7 +8,7 @@ type Partial_Eval_Result =
     { readonly all: true } |
     { readonly all: false, readonly cards: ReadonlySet<number> };
 
-type Eval_Result = Partial_Eval_Result & { readonly node: Exec_Node | null };
+type Eval_Result = Partial_Eval_Result & { readonly node: Enode | null };
 
 const NONE_EVAL_RESULT: Eval_Result = freeze({ all: false, cards: EMPTY_SET, node: null });
 const ALL_EVAL_RESULT: Eval_Result = freeze({ all: true, node: null });
@@ -123,13 +123,13 @@ export class Query_Engine {
                 // TODO: Evalutate disjunction.
                 unreachable();
             case 'and':
-                result = this.evaluate_conjunction_condition(condition, logger);
+                result = this.evaluate_condition_conjunction(condition, logger);
                 break;
             case 'not':
                 // TODO: Evalutate negation.
                 unreachable();
             case 'substring':
-                result = this.evaluate_substring_condition(condition);
+                result = this.evaluate_condition_substring(condition);
                 break;
             case 'even':
             case 'odd':
@@ -138,7 +138,7 @@ export class Query_Engine {
                 // TODO: Evalutate even, odd, range and subset.
                 unreachable();
             default:
-                result = this.evaluate_comparison_condition(condition);
+                result = this.evaluate_condition_comparison(condition);
                 break;
         }
 
@@ -147,12 +147,12 @@ export class Query_Engine {
         return result;
     }
 
-    private evaluate_conjunction_condition(
+    private evaluate_condition_conjunction(
         condition: Conjunction_Condition,
         logger: Logger,
     ): Eval_Result {
         let result: Partial_Eval_Result = ALL_EVAL_RESULT;
-        const child_nodes: Exec_Node[] = [];
+        const children: Enode[] = [];
 
         for (const cond of condition.conditions) {
             const child_result = this.evaluate_condition(cond, logger);
@@ -173,46 +173,35 @@ export class Query_Engine {
             }
 
             if (child_result.node) {
-                child_nodes.push(child_result.node);
+                // Combine conjunction nodes.
+                if (child_result.node.type === Enode_Type.Conjunction) {
+                    children.push(...child_result.node.children);
+                } else {
+                    children.push(child_result.node);
+                }
             }
         }
 
-        let node: Exec_Node | null;
+        let node: Enode | null;
 
-        if (child_nodes.length === 0) {
+        if (children.length === 0) {
             node = null;
-        } else if (child_nodes.length === 1) {
-            node = child_nodes[0];
+        } else if (children.length === 1) {
+            node = children[0];
         } else {
-            node = new Conjunction_Exec_Node(child_nodes);
+            node = { type: Enode_Type.Conjunction, children };
         }
 
         return { ...result, node };
     }
 
-    private evaluate_comparison_condition(condition: Comparison_Condition): Eval_Result {
+    private evaluate_condition_comparison(condition: Comparison_Condition): Eval_Result {
         switch (condition.prop) {
             case 'colors':
             case 'cost':
             case 'identity': {
                 // TODO: Indices for colors, cost and identity.
-                if (typeof condition.value === 'number') {
-                    return {
-                        all: true,
-                        node: new Mana_Cost_Number_Exec_Node(
-                            this.cards,
-                            condition as Comparison_Condition & { value: number },
-                        ),
-                    };
-                } else {
-                    return {
-                        all: true,
-                        node: new Mana_Cost_Exec_Node(
-                            this.cards,
-                            condition as Comparison_Condition & { value: Mana_Cost },
-                        ),
-                    };
-                }
+                return { all: true, node: this.create_enode_mana_cost(condition) };
             }
             case 'rarity':
             case 'released_at': {
@@ -220,35 +209,26 @@ export class Query_Engine {
                 unreachable();
             }
             default: {
+                // Comparison condition.
                 // TODO: Indices for comparisons.
-                return {
-                    all: true,
-                    node: new Comparison_Exec_Node(this.cards, condition as Comparison_Condition),
-                }
+                return { all: true, node: this.create_enode_comparison(condition) };
             }
         }
     }
 
-    private evaluate_substring_condition(condition: Substring_Condition): Eval_Result {
+    private evaluate_condition_substring(condition: Substring_Condition): Eval_Result {
         // All string properties contain the empty string.
         if (condition.value.length === 0) {
             return ALL_EVAL_RESULT;
         }
 
-        const per_face = PER_FACE_PROPS.includes(condition.prop);
         const index = this.substring_indices.get(condition.prop)
             ?? unreachable(`No index for property ${condition.prop}.`);
         const candidates = index.get_candidates(condition.value);
 
         // Condition string is shorter than the index' n-gram size, need to execute over all cards.
         if (candidates === null) {
-            return {
-                all: true,
-                node:
-                    per_face
-                        ? new Per_Face_Substring_Exec_Node(this.cards, condition)
-                        : new Substring_Exec_Node(this.cards, condition),
-            };
+            return { all: true, node: this.create_enode_substring(condition) };
         }
 
         // No card has this combination of n-grams.
@@ -265,20 +245,102 @@ export class Query_Engine {
         return {
             all: false,
             cards: candidates,
-            node:
-                per_face
-                    ? new Per_Face_Substring_Exec_Node(this.cards, condition)
-                    : new Substring_Exec_Node(this.cards, condition),
+            node: this.create_enode_substring(condition),
         };
     }
 
+    private create_enode_comparison(condition: Comparison_Condition): Enode_Comparison {
+        assert(!PER_VERSION_PROPS.includes(condition.prop));
+
+        const card_values =
+            this.cards.get_all<Comparison_Condition['value']>(condition.prop)
+            ?? unreachable();
+        const operator = condition_type_to_comparison_operator(condition.type);
+
+        return {
+            type: Enode_Type.Comparison,
+            condition,
+            card_values,
+            values_are_arrays:
+                PER_FACE_PROPS.includes(condition.prop) || condition.prop === 'formats',
+            operator,
+        };
+    }
+
+    private create_enode_mana_cost(
+        condition: Comparison_Condition,
+    ): Enode_Mana_Cost | Enode_Mana_Cost_Number {
+        const card_values =
+            this.cards.get_all<Mana_Cost | ReadonlyArray<Mana_Cost | null>>(condition.prop)
+            ?? unreachable();
+        const per_face = PER_FACE_PROPS.includes(condition.prop);
+        const operator = condition_type_to_comparison_operator(condition.type);
+
+        let node: Enode_Mana_Cost | Enode_Mana_Cost_Number;
+
+        if (typeof condition.value === 'number') {
+            assert(condition.prop === 'colors' || condition.prop === 'identity');
+
+            node = {
+                type: Enode_Type.Mana_Cost_Number,
+                condition: condition as Comparison_Condition & { value: number },
+                card_values,
+                per_face,
+                operator,
+            }
+        } else {
+            assert(
+                condition.prop === 'colors'
+                || condition.prop === 'cost'
+                || condition.prop === 'identity'
+            );
+
+            node = {
+                type: Enode_Type.Mana_Cost,
+                condition: condition as Comparison_Condition & { value: Mana_Cost },
+                card_values,
+                per_face,
+                operator,
+            }
+        }
+
+        return node;
+    }
+
+    private create_enode_substring(
+        condition: Substring_Condition,
+    ): Enode_Substring | Enode_Substring_Per_face {
+        assert(!PER_VERSION_PROPS.includes(condition.prop));
+
+        const per_face = PER_FACE_PROPS.includes(condition.prop);
+        const card_values = this.cards.get_all<unknown>(condition.prop) ?? unreachable();
+
+        let node: Enode_Substring | Enode_Substring_Per_face;
+
+        if (per_face) {
+            node = {
+                type: Enode_Type.Substring_Per_face,
+                condition,
+                card_values: card_values as ReadonlyArray<ReadonlyArray<string>>,
+            };
+        } else {
+            node = {
+                type: Enode_Type.Substring,
+                condition,
+                card_values: card_values as ReadonlyArray<string>,
+            };
+        }
+
+        return node;
+    }
+
     private execute_for_card(
-        exec_logger: (card_idx: number) => Logger,
-        exec_node: Exec_Node,
+        get_logger: (card_idx: number) => Logger,
+        node: Enode,
         card_idx: number,
         execution_result: Map<number, number>,
     ) {
-        const logger = exec_logger(card_idx);
+        const logger = get_logger(card_idx);
 
         // TODO: Optimize version count.
         const version_count = this.cards.version_count(card_idx) ?? 1;
@@ -295,7 +357,7 @@ export class Query_Engine {
                 : Bitset.with_cap(version_count);
         versions.fill();
 
-        exec_node.execute(logger, card_idx, versions);
+        this.execute_node(logger, node, card_idx, versions);
 
         const version_idx = versions.first_or_null();
 
@@ -304,6 +366,353 @@ export class Query_Engine {
         }
 
         logger.group_end();
+    }
+
+    private execute_node(logger: Logger, node: Enode, card_idx: number, versions: Uint_Set): void {
+        if (logger.should_log) {
+            logger.group(Enode_Type[node.type], node);
+        }
+
+        switch (node.type) {
+            case Enode_Type.Conjunction:
+                this.execute_node_conjunction(logger, node, card_idx, versions);
+                break;
+            case Enode_Type.Comparison:
+                this.execute_node_comparison(node, card_idx, versions);
+                break;
+            case Enode_Type.Mana_Cost:
+                this.execute_node_mana_cost(logger, node, card_idx, versions);
+                break;
+            case Enode_Type.Mana_Cost_Number:
+                this.execute_node_mana_cost_number(node, card_idx, versions);
+                break;
+            case Enode_Type.Substring:
+                this.execute_node_substring(node, card_idx, versions);
+                break;
+            case Enode_Type.Substring_Per_face:
+                this.execute_node_substring_per_face(node, card_idx, versions);
+                break;
+            default:
+                unreachable();
+        }
+
+        if (logger.should_log) {
+            logger.log('result:', versions.to_array());
+            logger.group_end();
+        }
+    }
+
+    private execute_node_conjunction(
+        logger: Logger,
+        node: Enode_Conjunction,
+        card_idx: number,
+        versions: Uint_Set,
+    ): void {
+        for (const child of node.children) {
+            this.execute_node(logger, child, card_idx, versions);
+
+            if (versions.size === 0) {
+                return;
+            }
+        }
+    }
+
+    private execute_node_comparison(
+        node: Enode_Comparison,
+        card_idx: number,
+        versions: Uint_Set,
+    ): void {
+        const value_or_values = node.card_values[card_idx] as any;
+        const condition_value = node.condition.value;
+
+        if (node.values_are_arrays) {
+            const values = value_or_values as ReadonlyArray<any>;
+            // We return true as soon as a value is found for which the comparison function returns
+            // true, except when the condition is of type "ne".
+            const sentinel = node.operator !== Comparison_Operator.NE;
+
+            for (const value of values) {
+                // Ignore non-existent values.
+                if (value === null) {
+                    continue;
+                }
+
+                let result: boolean;
+
+                switch (node.operator) {
+                    case Comparison_Operator.EQ:
+                        result = value === condition_value;
+                        break;
+                    case Comparison_Operator.NE:
+                        result = value !== condition_value;
+                        break;
+                    case Comparison_Operator.LT:
+                        result = value < condition_value;
+                        break;
+                    case Comparison_Operator.GT:
+                        result = value > condition_value;
+                        break;
+                    case Comparison_Operator.LE:
+                        result = value <= condition_value;
+                        break;
+                    case Comparison_Operator.GE:
+                        result = value >= condition_value;
+                        break;
+                    default:
+                        unreachable();
+                }
+
+                if (result === sentinel) {
+                    if (!sentinel) {
+                        versions.clear();
+                    }
+
+                    return;
+                }
+            }
+
+            if (sentinel) {
+                versions.clear();
+            }
+        } else {
+            const value = value_or_values;
+            let result: boolean;
+
+            switch (node.operator) {
+                case Comparison_Operator.EQ:
+                    result = value === condition_value;
+                    break;
+                case Comparison_Operator.NE:
+                    result = value !== condition_value;
+                    break;
+                case Comparison_Operator.LT:
+                    result = value < condition_value;
+                    break;
+                case Comparison_Operator.GT:
+                    result = value > condition_value;
+                    break;
+                case Comparison_Operator.LE:
+                    result = value <= condition_value;
+                    break;
+                case Comparison_Operator.GE:
+                    result = value >= condition_value;
+                    break;
+                default:
+                    unreachable();
+            }
+
+            if (!result) {
+                versions.clear();
+            }
+        }
+    }
+
+    private execute_node_mana_cost(
+        logger: Logger,
+        node: Enode_Mana_Cost,
+        card_idx: number,
+        versions: Uint_Set,
+    ): void {
+        const condition_value = node.condition.value;
+        const value_or_values = node.card_values[card_idx];
+
+        if (node.per_face) {
+            const values = value_or_values as ReadonlyArray<Mana_Cost | null>;
+            // We return true as soon as a value is found for which the comparison function returns
+            // true, except when the condition is of type "ne".
+            const sentinel = node.operator !== Comparison_Operator.NE;
+
+            for (const value of values) {
+                // Ignore non-existent values.
+                if (value === null) {
+                    continue;
+                }
+
+                let result: boolean;
+
+                switch (node.operator) {
+                    case Comparison_Operator.EQ:
+                        result = mana_cost_eq(value, condition_value, logger);
+                        break;
+                    case Comparison_Operator.NE:
+                        result = !mana_cost_eq(value, condition_value, logger);
+                        break;
+                    case Comparison_Operator.LT:
+                        result = mana_cost_is_super_set(condition_value, value, true, logger);
+                        break;
+                    case Comparison_Operator.GT:
+                        result = mana_cost_is_super_set(value, condition_value, true, logger);
+                        break;
+                    case Comparison_Operator.LE:
+                        result = mana_cost_is_super_set(condition_value, value, false, logger);
+                        break;
+                    case Comparison_Operator.GE:
+                        result = mana_cost_is_super_set(value, condition_value, false, logger);
+                        break;
+                    default:
+                        unreachable();
+                }
+
+                if (result === sentinel) {
+                    if (!sentinel) {
+                        versions.clear();
+                    }
+
+                    return;
+                }
+            }
+
+            if (sentinel) {
+                versions.clear();
+            }
+        } else {
+            const value = value_or_values as Mana_Cost;
+            let result: boolean;
+
+            switch (node.operator) {
+                case Comparison_Operator.EQ:
+                    result = mana_cost_eq(value, condition_value, logger);
+                    break;
+                case Comparison_Operator.NE:
+                    result = !mana_cost_eq(value, condition_value, logger);
+                    break;
+                case Comparison_Operator.LT:
+                    result = mana_cost_is_super_set(condition_value, value, true, logger);
+                    break;
+                case Comparison_Operator.GT:
+                    result = mana_cost_is_super_set(value, condition_value, true, logger);
+                    break;
+                case Comparison_Operator.LE:
+                    result = mana_cost_is_super_set(condition_value, value, false, logger);
+                    break;
+                case Comparison_Operator.GE:
+                    result = mana_cost_is_super_set(value, condition_value, false, logger);
+                    break;
+                default:
+                    unreachable();
+            }
+
+            if (!result) {
+                versions.clear();
+            }
+        }
+    }
+
+    private execute_node_mana_cost_number(
+        node: Enode_Mana_Cost_Number,
+        card_idx: number,
+        versions: Uint_Set,
+    ): void {
+        const condition_value: number = node.condition.value;
+        const value_or_values = node.card_values[card_idx];
+
+        if (node.per_face) {
+            const values = value_or_values as ReadonlyArray<Mana_Cost | null>;
+            // We return true as soon as a value is found for which the comparison function returns
+            // true, except when the condition is of type "ne".
+            const sentinel = node.operator !== Comparison_Operator.NE;
+
+            for (const value of values) {
+                // Ignore non-existent values.
+                if (value === null) {
+                    continue;
+                }
+
+                const len: number = Object.keys(value).length;
+                let result: boolean;
+
+                switch (node.operator) {
+                    case Comparison_Operator.EQ:
+                        result = len === condition_value;
+                        break;
+                    case Comparison_Operator.NE:
+                        result = len !== condition_value;
+                        break;
+                    case Comparison_Operator.LT:
+                        result = len < condition_value;
+                        break;
+                    case Comparison_Operator.GT:
+                        result = len > condition_value;
+                        break;
+                    case Comparison_Operator.LE:
+                        result = len <= condition_value;
+                        break;
+                    case Comparison_Operator.GE:
+                        result = len >= condition_value;
+                        break;
+                    default:
+                        unreachable();
+                }
+
+                if (result === sentinel) {
+                    if (!sentinel) {
+                        versions.clear();
+                    }
+
+                    return;
+                }
+            }
+
+            if (sentinel) {
+                versions.clear();
+            }
+        } else {
+            const len: number = Object.keys(value_or_values).length;
+            let result: boolean;
+
+            switch (node.operator) {
+                case Comparison_Operator.EQ:
+                    result = len === condition_value;
+                    break;
+                case Comparison_Operator.NE:
+                    result = len !== condition_value;
+                    break;
+                case Comparison_Operator.LT:
+                    result = len < condition_value;
+                    break;
+                case Comparison_Operator.GT:
+                    result = len > condition_value;
+                    break;
+                case Comparison_Operator.LE:
+                    result = len <= condition_value;
+                    break;
+                case Comparison_Operator.GE:
+                    result = len >= condition_value;
+                    break;
+                default:
+                    unreachable();
+            }
+
+            if (!result) {
+                versions.clear();
+            }
+        }
+    }
+
+    private execute_node_substring(
+        node: Enode_Substring,
+        card_idx: number,
+        versions: Uint_Set,
+    ): void {
+        if (!node.card_values[card_idx].includes(node.condition.value)) {
+            versions.clear();
+        }
+    }
+
+    private execute_node_substring_per_face(
+        node: Enode_Substring_Per_face,
+        card_idx: number,
+        versions: Uint_Set,
+    ): void {
+        const condition_value = node.condition.value;
+
+        for (const value of node.card_values[card_idx]) {
+            if (value.includes(condition_value)) {
+                return;
+            }
+        }
+
+        versions.clear();
     }
 
     // TODO: Cache this until data changes.
@@ -399,441 +808,83 @@ enum Comparison_Operator {
     GE = 6,
 }
 
-abstract class Exec_Node {
-    execute(logger: Logger, card_idx: number, versions: Uint_Set): void {
-        if (logger.should_log) {
-            logger.group('conjunction');
-            this.execute_internal(logger, card_idx, versions);
-            logger.log('result:', versions.to_array());
-            logger.group_end();
-        } else {
-            this.execute_internal(logger, card_idx, versions);
-        }
-    }
-
-    protected abstract execute_internal(logger: Logger, card_idx: number, versions: Uint_Set): void;
+enum Enode_Type {
+    Conjunction = 1,
+    Comparison = 2,
+    Mana_Cost = 3,
+    Mana_Cost_Number = 4,
+    Substring = 5,
+    Substring_Per_face = 6,
 }
 
-class Conjunction_Exec_Node extends Exec_Node {
-    private readonly children: readonly Exec_Node[];
+/** Execution node. */
+type Enode =
+    Enode_Conjunction |
+    Enode_Comparison |
+    Enode_Mana_Cost |
+    Enode_Mana_Cost_Number |
+    Enode_Substring |
+    Enode_Substring_Per_face;
 
-    constructor(children: readonly Exec_Node[]) {
-        super();
-        this.children = children;
-    }
-
-    protected override execute_internal(
-        logger: Logger,
-        card_idx: number,
-        versions: Uint_Set,
-    ): void {
-        for (const child of this.children) {
-            child.execute(logger, card_idx, versions);
-
-            if (versions.size === 0) {
-                return;
-            }
-        }
-    }
+type Enode_Conjunction = {
+    readonly type: Enode_Type.Conjunction,
+    readonly children: ReadonlyArray<Enode>,
 }
 
-class Substring_Exec_Node extends Exec_Node {
-    private readonly condition: Substring_Condition;
-    private readonly card_values: ReadonlyArray<string>;
-
-    constructor(cards: Cards, condition: Substring_Condition) {
-        assert(
-            !PER_FACE_PROPS.includes(condition.prop)
-            && !PER_VERSION_PROPS.includes(condition.prop)
-        );
-        super();
-        this.condition = condition;
-        this.card_values = cards.get_all<string>(condition.prop) ?? unreachable();
-    }
-
-    protected override execute_internal(
-        _logger: Logger,
-        card_idx: number,
-        versions: Uint_Set,
-    ): void {
-        if (!this.card_values[card_idx].includes(this.condition.value)) {
-            versions.clear();
-        }
-    }
+type Enode_Comparison = {
+    readonly type: Enode_Type.Comparison,
+    readonly condition: Comparison_Condition,
+    readonly card_values: ReadonlyArray<unknown>,
+    readonly values_are_arrays: boolean,
+    readonly operator: Comparison_Operator,
 }
 
-class Per_Face_Substring_Exec_Node extends Exec_Node {
-    private readonly condition: Substring_Condition;
-    private readonly card_values: ReadonlyArray<ReadonlyArray<string>>;
-
-    constructor(cards: Cards, condition: Substring_Condition) {
-        assert(
-            PER_FACE_PROPS.includes(condition.prop)
-            && !PER_VERSION_PROPS.includes(condition.prop)
-        );
-        super();
-        this.condition = condition;
-        this.card_values = cards.get_all<ReadonlyArray<string>>(condition.prop) ?? unreachable();
-    }
-
-    protected override execute_internal(
-        _logger: Logger,
-        card_idx: number,
-        versions: Uint_Set,
-    ): void {
-        const condition_value = this.condition.value;
-
-        for (const value of this.card_values[card_idx]) {
-            if (value.includes(condition_value)) {
-                return;
-            }
-        }
-
-        versions.clear();
-    }
+type Enode_Mana_Cost = {
+    readonly type: Enode_Type.Mana_Cost,
+    readonly condition: Comparison_Condition & { value: Mana_Cost },
+    readonly card_values: ReadonlyArray<Mana_Cost | ReadonlyArray<Mana_Cost | null>>,
+    readonly per_face: boolean,
+    readonly operator: Comparison_Operator,
 }
 
-class Comparison_Exec_Node extends Exec_Node {
-    private readonly condition: Comparison_Condition;
-    private readonly card_values: ReadonlyArray<Comparison_Condition['value']>;
-    private readonly operator: Comparison_Operator;
-
-    constructor(cards: Cards, condition: Comparison_Condition) {
-        assert(
-            !PER_FACE_PROPS.includes(condition.prop)
-            && !PER_VERSION_PROPS.includes(condition.prop)
-        );
-        super();
-        this.condition = condition;
-        this.card_values =
-            cards.get_all<Comparison_Condition['value']>(condition.prop) ?? unreachable();
-
-        switch (condition.type) {
-            case 'eq':
-                this.operator = Comparison_Operator.EQ;
-                break;
-            case 'ne':
-                this.operator = Comparison_Operator.NE;
-                break;
-            case 'lt':
-                this.operator = Comparison_Operator.LT;
-                break;
-            case 'gt':
-                this.operator = Comparison_Operator.GT;
-                break;
-            case 'le':
-                this.operator = Comparison_Operator.LE;
-                break;
-            case 'ge':
-                this.operator = Comparison_Operator.GE;
-                break;
-            default:
-                unreachable();
-        }
-    }
-
-    protected override execute_internal(
-        _logger: Logger,
-        card_idx: number,
-        versions: Uint_Set,
-    ): void {
-        const value = this.card_values[card_idx];
-        const condition_value = this.condition.value;
-        let result: boolean;
-
-        switch (this.operator) {
-            case Comparison_Operator.EQ:
-                result = value === condition_value;
-                break;
-            case Comparison_Operator.NE:
-                result = value !== condition_value;
-                break;
-            case Comparison_Operator.LT:
-                result = value < condition_value;
-                break;
-            case Comparison_Operator.GT:
-                result = value > condition_value;
-                break;
-            case Comparison_Operator.LE:
-                result = value <= condition_value;
-                break;
-            case Comparison_Operator.GE:
-                result = value >= condition_value;
-                break;
-            default:
-                unreachable();
-        }
-
-        if (!result) {
-            versions.clear();
-        }
-    }
+type Enode_Mana_Cost_Number = {
+    readonly type: Enode_Type.Mana_Cost_Number,
+    readonly condition: Comparison_Condition & { value: number },
+    readonly card_values: ReadonlyArray<Mana_Cost | ReadonlyArray<Mana_Cost | null>>,
+    readonly per_face: boolean,
+    readonly operator: Comparison_Operator,
 }
 
-class Mana_Cost_Exec_Node extends Exec_Node {
-    private readonly condition: Comparison_Condition & { value: Mana_Cost };
-    private readonly card_values: ReadonlyArray<Mana_Cost | ReadonlyArray<Mana_Cost | null>>;
-    private readonly per_face: boolean;
-    private readonly operator: Comparison_Operator;
-
-    constructor(
-        cards: Cards,
-        condition: Comparison_Condition & { value: Mana_Cost },
-    ) {
-        assert(Array<Prop>('colors', 'cost', 'identity').includes(condition.prop));
-        super();
-        this.condition = condition;
-        this.card_values =
-            cards.get_all<Mana_Cost | ReadonlyArray<Mana_Cost | null>>(condition.prop)
-            ?? unreachable();
-        this.per_face = PER_FACE_PROPS.includes(condition.prop);
-
-        switch (condition.type) {
-            case 'eq':
-                this.operator = Comparison_Operator.EQ;
-                break;
-            case 'ne':
-                this.operator = Comparison_Operator.NE;
-                break;
-            case 'lt':
-                this.operator = Comparison_Operator.LT;
-                break;
-            case 'gt':
-                this.operator = Comparison_Operator.GT;
-                break;
-            case 'le':
-                this.operator = Comparison_Operator.LE;
-                break;
-            case 'ge':
-                this.operator = Comparison_Operator.GE;
-                break;
-            default:
-                unreachable();
-        }
-    }
-
-    protected override execute_internal(
-        logger: Logger,
-        card_idx: number,
-        versions: Uint_Set,
-    ): void {
-        const condition_value = this.condition.value;
-        const value_or_values = this.card_values[card_idx];
-
-        if (this.per_face) {
-            const values = value_or_values as ReadonlyArray<Mana_Cost | null>;
-            // We return true as soon as a value is found for which the comparison function returns
-            // true, except when the condition is of type "ne".
-            const sentinel = this.operator !== Comparison_Operator.NE;
-
-            for (const value of values) {
-                // Ignore non-existent values.
-                if (value === null) {
-                    continue;
-                }
-
-                let result: boolean;
-
-                switch (this.operator) {
-                    case Comparison_Operator.EQ:
-                        result = mana_cost_eq(value, condition_value, logger);
-                        break;
-                    case Comparison_Operator.NE:
-                        result = !mana_cost_eq(value, condition_value, logger);
-                        break;
-                    case Comparison_Operator.LT:
-                        result = mana_cost_is_super_set(condition_value, value, true, logger);
-                        break;
-                    case Comparison_Operator.GT:
-                        result = mana_cost_is_super_set(value, condition_value, true, logger);
-                        break;
-                    case Comparison_Operator.LE:
-                        result = mana_cost_is_super_set(condition_value, value, false, logger);
-                        break;
-                    case Comparison_Operator.GE:
-                        result = mana_cost_is_super_set(value, condition_value, false, logger);
-                        break;
-                    default:
-                        unreachable();
-                }
-
-                if (result === sentinel) {
-                    if (!sentinel) {
-                        versions.clear();
-                    }
-
-                    return;
-                }
-            }
-
-            if (sentinel) {
-                versions.clear();
-            }
-        } else {
-            const value = value_or_values as Mana_Cost;
-            let result: boolean;
-
-            switch (this.operator) {
-                case Comparison_Operator.EQ:
-                    result = mana_cost_eq(value, condition_value, logger);
-                    break;
-                case Comparison_Operator.NE:
-                    result = !mana_cost_eq(value, condition_value, logger);
-                    break;
-                case Comparison_Operator.LT:
-                    result = mana_cost_is_super_set(condition_value, value, true, logger);
-                    break;
-                case Comparison_Operator.GT:
-                    result = mana_cost_is_super_set(value, condition_value, true, logger);
-                    break;
-                case Comparison_Operator.LE:
-                    result = mana_cost_is_super_set(condition_value, value, false, logger);
-                    break;
-                case Comparison_Operator.GE:
-                    result = mana_cost_is_super_set(value, condition_value, false, logger);
-                    break;
-                default:
-                    unreachable();
-            }
-
-            if (!result) {
-                versions.clear();
-            }
-        }
-    }
+type Enode_Substring = {
+    readonly type: Enode_Type.Substring,
+    readonly condition: Substring_Condition,
+    readonly card_values: ReadonlyArray<string>,
 }
 
-class Mana_Cost_Number_Exec_Node extends Exec_Node {
-    private readonly condition: Comparison_Condition & { value: number };
-    private readonly card_values: ReadonlyArray<Mana_Cost | ReadonlyArray<Mana_Cost | null>>;
-    private readonly per_face: boolean;
-    private readonly operator: Comparison_Operator;
+type Enode_Substring_Per_face = {
+    readonly type: Enode_Type.Substring_Per_face,
+    readonly condition: Substring_Condition,
+    readonly card_values: ReadonlyArray<ReadonlyArray<string>>,
+}
 
-    constructor(
-        cards: Cards,
-        condition: Comparison_Condition & { value: number },
-    ) {
-        assert(Array<Prop>('colors', 'identity').includes(condition.prop));
-        super();
-        this.condition = condition;
-        this.card_values =
-            cards.get_all<Mana_Cost | ReadonlyArray<Mana_Cost | null>>(condition.prop)
-            ?? unreachable();
-        this.per_face = condition.prop !== 'identity';
-
-        switch (condition.type) {
-            case 'eq':
-                this.operator = Comparison_Operator.EQ;
-                break;
-            case 'ne':
-                this.operator = Comparison_Operator.NE;
-                break;
-            case 'lt':
-                this.operator = Comparison_Operator.LT;
-                break;
-            case 'gt':
-                this.operator = Comparison_Operator.GT;
-                break;
-            case 'le':
-                this.operator = Comparison_Operator.LE;
-                break;
-            case 'ge':
-                this.operator = Comparison_Operator.GE;
-                break;
-            default:
-                unreachable();
-        }
-    }
-
-    protected override execute_internal(
-        _logger: Logger,
-        card_idx: number,
-        versions: Uint_Set,
-    ): void {
-        const condition_value: number = this.condition.value;
-        const value_or_values = this.card_values[card_idx];
-
-        if (this.per_face) {
-            const values = value_or_values as ReadonlyArray<Mana_Cost | null>;
-            // We return true as soon as a value is found for which the comparison function returns
-            // true, except when the condition is of type "ne".
-            const sentinel = this.operator !== Comparison_Operator.NE;
-
-            for (const value of values) {
-                // Ignore non-existent values.
-                if (value === null) {
-                    continue;
-                }
-
-                const len: number = Object.keys(value).length;
-                let result: boolean;
-
-                switch (this.operator) {
-                    case Comparison_Operator.EQ:
-                        result = len === condition_value;
-                        break;
-                    case Comparison_Operator.NE:
-                        result = len !== condition_value;
-                        break;
-                    case Comparison_Operator.LT:
-                        result = len < condition_value;
-                        break;
-                    case Comparison_Operator.GT:
-                        result = len > condition_value;
-                        break;
-                    case Comparison_Operator.LE:
-                        result = len <= condition_value;
-                        break;
-                    case Comparison_Operator.GE:
-                        result = len >= condition_value;
-                        break;
-                    default:
-                        unreachable();
-                }
-
-                if (result === sentinel) {
-                    if (!sentinel) {
-                        versions.clear();
-                    }
-
-                    return;
-                }
-            }
-
-            if (sentinel) {
-                versions.clear();
-            }
-        } else {
-            const len: number = Object.keys(value_or_values).length;
-            let result: boolean;
-
-            switch (this.operator) {
-                case Comparison_Operator.EQ:
-                    result = len === condition_value;
-                    break;
-                case Comparison_Operator.NE:
-                    result = len !== condition_value;
-                    break;
-                case Comparison_Operator.LT:
-                    result = len < condition_value;
-                    break;
-                case Comparison_Operator.GT:
-                    result = len > condition_value;
-                    break;
-                case Comparison_Operator.LE:
-                    result = len <= condition_value;
-                    break;
-                case Comparison_Operator.GE:
-                    result = len >= condition_value;
-                    break;
-                default:
-                    unreachable();
-            }
-
-            if (!result) {
-                versions.clear();
-            }
-        }
+function condition_type_to_comparison_operator(
+    type: Comparison_Condition['type']
+): Comparison_Operator {
+    switch (type) {
+        case 'eq':
+            return Comparison_Operator.EQ;
+        case 'ne':
+            return Comparison_Operator.NE;
+        case 'lt':
+            return Comparison_Operator.LT;
+        case 'gt':
+            return Comparison_Operator.GT;
+        case 'le':
+            return Comparison_Operator.LE;
+        case 'ge':
+            return Comparison_Operator.GE;
+        default:
+            unreachable();
     }
 }
 
