@@ -46,6 +46,7 @@ export async function run_test_suite(cards: Cards) {
             execute_query: (
                 subset_store: Subset_Store,
                 query: Query,
+                logger: Logger,
                 card_logger: (idx: number) => Logger,
             ) => ReadonlyMap<number, number>,
         ) {
@@ -70,6 +71,7 @@ export async function run_test_suite(cards: Cards) {
                 const result = execute_query(
                     subset_store,
                     query,
+                    Nop_Logger,
                     () => Nop_Logger,
                 );
 
@@ -101,6 +103,7 @@ export async function run_test_suite(cards: Cards) {
                     execute_query(
                         subset_store,
                         query,
+                        logger,
                         idx => (log_set.has(cards.name(idx)) ? logger : Nop_Logger),
                     );
 
@@ -115,7 +118,7 @@ export async function run_test_suite(cards: Cards) {
 
         test_query_helper(
             'eval',
-            (subset_store, query, card_logger) => find_cards_matching_query(
+            (subset_store, query, _logger, card_logger) => find_cards_matching_query(
                 cards,
                 subset_store,
                 query,
@@ -123,7 +126,14 @@ export async function run_test_suite(cards: Cards) {
             ),
         );
 
-        test_query_helper('engine', (_subset_store, query) => engine.execute(query));
+        test_query_helper(
+            'engine',
+            (_subset_store, query, logger, card_logger) => engine.execute(
+                logger,
+                card_logger,
+                query,
+            ),
+        );
     }
 
     test('pop_count_32', () => {

@@ -136,6 +136,18 @@ export const PROPS: readonly Prop[] = freeze([
     'type',
     'type_search',
 ]);
+export const PER_FACE_PROPS: readonly Prop[] = freeze([
+    'colors',
+    'cost',
+    'full_oracle',
+    'full_oracle_search',
+    'img',
+    'name',
+    'oracle',
+    'oracle_search',
+    'type',
+    'type_search',
+]);
 export const PER_VERSION_PROPS: readonly Prop[] = freeze([
     'rarity',
     'released_at',

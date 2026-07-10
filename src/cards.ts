@@ -160,7 +160,7 @@ export class Cards {
     private props: Map<Prop, any> = new Map();
     private prop_promises: Map<Prop, Promise<void>> = new Map;
     private sorters: Map<Sort_Order, Promise<Sorter>> = new Map;
-    private creation_time: Date | null = null;
+    private _creation_time: Date | null = null;
     private aborter = new AbortController;
     private fetch_with_cache_reload = false;
     private last_clear: number | null = null;
@@ -173,6 +173,10 @@ export class Cards {
         return Promise.allSettled(
             [...this.prop_promises.values(), ...this.sorters.values()]
         ) as unknown as Promise<void>;
+    }
+
+    get creation_time(): Date | null {
+        return this._creation_time;
     }
 
     data_is_out_of_date() {
@@ -189,7 +193,7 @@ export class Cards {
             this.props.clear();
             this.prop_promises.clear();
             this.sorters.clear();
-            this.creation_time = null;
+            this._creation_time = null;
 
             // Fetch with Cache-Control set to reload from now on.
             this.fetch_with_cache_reload = true;
@@ -244,9 +248,9 @@ export class Cards {
             promise = fetch(`data/card_${prop}.json`, init).then(async response => {
                 const { creation_time, data } = await response.json();
 
-                if (this.creation_time === null) {
-                    this.creation_time = new Date(creation_time);
-                } else if (this.creation_time.getTime() !== creation_time) {
+                if (this._creation_time === null) {
+                    this._creation_time = new Date(creation_time);
+                } else if (this._creation_time.getTime() !== creation_time) {
                     this.data_is_out_of_date();
                 }
 
@@ -451,9 +455,9 @@ export class Cards {
                     const sorter = new Index_Sorter(this, await response.arrayBuffer());
                     assert_eq(sorter.order, order);
 
-                    if (this.creation_time === null) {
-                        this.creation_time = sorter.creation_time;
-                    } else if (this.creation_time.getTime() !== sorter.creation_time.getTime()) {
+                    if (this._creation_time === null) {
+                        this._creation_time = sorter.creation_time;
+                    } else if (this._creation_time.getTime() !== sorter.creation_time.getTime()) {
                         this.data_is_out_of_date();
                     }
 
