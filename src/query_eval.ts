@@ -143,6 +143,7 @@ export class Query_Evaluator {
             }
             case 'or': {
                 const orig_version_idxs = version_idxs.copy();
+                // TODO: Don't make a copy, create a new Uint_Set for sub_idxs.
                 const sub_idxs = version_idxs.copy();
                 version_idxs.clear();
 

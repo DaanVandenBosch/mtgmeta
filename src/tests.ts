@@ -17,7 +17,7 @@ import { find_cards_matching_query } from "./query_eval";
 import { remove_parenthesized_text, type Cards } from "./cards";
 import { Subset_Store } from "./subset";
 import { query_hash } from "./query_hash";
-import { Query_Engine } from "./query_engine";
+import { Query_Engine } from "./query/engine";
 
 export async function run_test_suite(cards: Cards) {
     Console_Logger.time('run_test_suite');
