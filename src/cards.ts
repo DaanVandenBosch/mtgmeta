@@ -1,5 +1,5 @@
 import { assert, assert_eq, Console_Logger, TEXT_DECODER } from './core';
-import { INEXACT_REGEX, PER_VERSION_PROPS, type Prop } from './query';
+import { INEXACT_REGEX, PER_VERSION_PROPS, RARITY_RANK, type Prop, type Rarity } from './query';
 import { parse_mana_cost } from './query_parsing';
 
 export type Sort_Order = 'cmc' | 'name' | 'released_at';
@@ -336,6 +336,16 @@ export class Cards {
                         this.props.set('oracle', oracle_data);
                         this.props.set('oracle_search', oracle_search_data);
                         this.props.set('full_oracle_search', full_oracle_search_data);
+                        break;
+                    }
+
+                    case 'rarity': {
+                        for (const values of data) {
+                            for (let i = 0, len = values.length; i < len; i++) {
+                                values[i] = RARITY_RANK[values[i] as Rarity];
+                            }
+                        }
+
                         break;
                     }
 

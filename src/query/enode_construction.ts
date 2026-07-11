@@ -1,6 +1,6 @@
 import type { Cards } from "../cards";
 import { assert, EMPTY_SET, unreachable, type Logger } from "../core";
-import { MULTI_VALUE_PROPS, PER_FACE_PROPS, PER_VERSION_PROPS, type Comparison_Condition, type Condition, type Conjunction_Condition, type Disjunction_Condition, type Mana_Cost, type Predicate_Condition, type Prop, type Query, type Range_Condition, type Subset_Condition, type Substring_Condition } from "../query";
+import { MULTI_VALUE_PROPS, PER_FACE_PROPS, PER_VERSION_PROPS, RARITY_RANK, type Comparison_Condition, type Condition, type Conjunction_Condition, type Disjunction_Condition, type Mana_Cost, type Predicate_Condition, type Prop, type Property_Condition, type Query, type Range_Condition, type Rarity, type Subset_Condition, type Substring_Condition } from "../query";
 import type { Subset_Store } from "../subset";
 import { Comparison_Operator, Enode_Type, Prop_Value_Type, type Enode, type Enode_Comparison, type Enode_Even, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Range, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
 import type { Indices } from "./indices";
@@ -216,10 +216,6 @@ export class Enode_Constructor {
                 // TODO: Indices for colors, cost and identity.
                 return { all: true, node: this.create_enode_mana_cost(condition, negate) };
             }
-            case 'rarity': {
-                // TODO: rarity.
-                unreachable(`TODO: ${condition.prop}`);
-            }
             case 'reprint': {
                 assert(condition.type === 'eq' || condition.type === 'ne');
                 // TODO: Index for reprint?
@@ -303,9 +299,9 @@ export class Enode_Constructor {
             type: Enode_Type.Range,
             values: this.cards.get_all<any>(condition.prop) ?? unreachable(),
             value_type: prop_to_value_type(condition.prop),
-            start: condition.start instanceof Date ? condition.start.getTime() : condition.start,
+            start: condition_to_value(condition, condition.start),
             start_inc: condition.start_inc,
-            end: condition.end instanceof Date ? condition.end.getTime() : condition.end,
+            end: condition_to_value(condition, condition.end),
             end_inc: condition.end_inc,
             negated,
         };
@@ -332,14 +328,13 @@ export class Enode_Constructor {
         negate: boolean,
     ): Enode_Comparison {
         const values = this.cards.get_all<any>(condition.prop) ?? unreachable();
-        const condition_value =
-            condition.value instanceof Date ? condition.value.getTime() : condition.value;
         const [operator, negated] = condition_type_to_comparison_operator(condition.type);
+
         return {
             type: Enode_Type.Comparison,
             values,
             value_type: prop_to_value_type(condition.prop),
-            condition_value,
+            condition_value: condition_to_value(condition, condition.value),
             operator,
             negated: negate !== negated,
         };
@@ -449,5 +444,15 @@ function prop_to_value_type(prop: Prop): Prop_Value_Type {
         return Prop_Value_Type.Multi;
     } else {
         return Prop_Value_Type.Single;
+    }
+}
+
+function condition_to_value(condition: Property_Condition, value: any): any {
+    if (condition.prop === 'rarity') {
+        return RARITY_RANK[value as Rarity];
+    } else if (value instanceof Date) {
+        return value.getTime();
+    } else {
+        return value;
     }
 }

@@ -177,6 +177,15 @@ export const RARITY_MYTHIC: Rarity = 'mythic';
 export const RARITY_SPECIAL: Rarity = 'special';
 export const RARITY_BONUS: Rarity = 'bonus';
 
+export const RARITY_RANK = freeze({
+    [RARITY_COMMON]: 0,
+    [RARITY_UNCOMMON]: 1,
+    [RARITY_RARE]: 2,
+    [RARITY_SPECIAL]: 3,
+    [RARITY_MYTHIC]: 4,
+    [RARITY_BONUS]: 5,
+});
+
 export const INEXACT_REGEX = /[.,:;/\\'" \t]+/g;
 
 export const TRUE_CONDITION: True_Condition = freeze({ type: 'true' });

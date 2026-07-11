@@ -11,29 +11,15 @@ import {
     type Mana_Cost,
     PER_VERSION_PROPS,
     MANA_GENERIC,
-    RARITY_COMMON,
-    RARITY_UNCOMMON,
-    RARITY_RARE,
-    RARITY_MYTHIC,
-    RARITY_SPECIAL,
-    RARITY_BONUS,
     type Rarity,
     type Property_Condition,
+    RARITY_RANK,
 } from './query';
 import { Cards } from './cards';
 import type { Subset_Store } from './subset';
 const freeze = Object.freeze;
 
 export const PROPS_REQUIRED_FOR_DISPLAY: readonly Prop[] = freeze(['sfurl', 'img', 'landscape']);
-
-const RARITY_RANK = freeze({
-    [RARITY_COMMON]: 0,
-    [RARITY_UNCOMMON]: 1,
-    [RARITY_RARE]: 2,
-    [RARITY_SPECIAL]: 3,
-    [RARITY_MYTHIC]: 4,
-    [RARITY_BONUS]: 5,
-});
 
 enum Uint_Set_Type {
     BIT32,
@@ -441,28 +427,28 @@ function get_compare_helper(
         case 'rarity': {
             switch (condition.type) {
                 case 'eq':
-                    return (value: Rarity, cond: Comparison_Condition) => {
-                        return RARITY_RANK[value] === RARITY_RANK[cond.value as Rarity];
+                    return (value: number, cond: Comparison_Condition) => {
+                        return value === RARITY_RANK[cond.value as Rarity];
                     }
                 case 'ne':
-                    return (value: Rarity, cond: Comparison_Condition) => {
-                        return RARITY_RANK[value] !== RARITY_RANK[cond.value as Rarity];
+                    return (value: number, cond: Comparison_Condition) => {
+                        return value !== RARITY_RANK[cond.value as Rarity];
                     }
                 case 'gt':
-                    return (value: Rarity, cond: Comparison_Condition) => {
-                        return RARITY_RANK[value] > RARITY_RANK[cond.value as Rarity];
+                    return (value: number, cond: Comparison_Condition) => {
+                        return value > RARITY_RANK[cond.value as Rarity];
                     }
                 case 'lt':
-                    return (value: Rarity, cond: Comparison_Condition) => {
-                        return RARITY_RANK[value] < RARITY_RANK[cond.value as Rarity];
+                    return (value: number, cond: Comparison_Condition) => {
+                        return value < RARITY_RANK[cond.value as Rarity];
                     }
                 case 'ge':
-                    return (value: Rarity, cond: Comparison_Condition) => {
-                        return RARITY_RANK[value] >= RARITY_RANK[cond.value as Rarity];
+                    return (value: number, cond: Comparison_Condition) => {
+                        return value >= RARITY_RANK[cond.value as Rarity];
                     }
                 case 'le':
-                    return (value: Rarity, cond: Comparison_Condition) => {
-                        return RARITY_RANK[value] <= RARITY_RANK[cond.value as Rarity];
+                    return (value: number, cond: Comparison_Condition) => {
+                        return value <= RARITY_RANK[cond.value as Rarity];
                     }
             }
         }
