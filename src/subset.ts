@@ -68,4 +68,9 @@ export class Subset_Store {
         this._id_to_subset.set(subset.id, subset);
         this._name_to_subset.set(subset.name, subset);
     }
+
+    delete_all() {
+        this._id_to_subset.clear();
+        this._name_to_subset.clear();
+    }
 }

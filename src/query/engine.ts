@@ -1,17 +1,21 @@
 import type { Cards } from '../cards';
 import { assert, unreachable, type Logger } from '../core';
 import type { Query } from '../query';
+import type { Subset_Store } from '../subset';
 import { Enode_Constructor } from './enode_construction';
 import { Enode_Executor } from './enode_execution';
+import { Indices } from './indices';
 
 export class Query_Engine {
     private readonly cards: Cards;
+    private readonly indices: Indices;
     private readonly enode_constructor: Enode_Constructor;
     private readonly executor: Enode_Executor;
 
-    constructor(cards: Cards) {
+    constructor(cards: Cards, indices: Indices, subset_store: Subset_Store) {
         this.cards = cards;
-        this.enode_constructor = new Enode_Constructor(cards);
+        this.indices = indices;
+        this.enode_constructor = new Enode_Constructor(cards, indices, subset_store);
         this.executor = new Enode_Executor(cards);
     }
 
@@ -23,7 +27,7 @@ export class Query_Engine {
         logger.log('query:', query);
         logger.time('full execution');
 
-        this.enode_constructor.rebuild_indices(logger);
+        this.indices.rebuild(logger);
 
         logger.group('enode construction');
         logger.time('enode construction');

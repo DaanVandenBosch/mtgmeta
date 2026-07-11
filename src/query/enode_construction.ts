@@ -1,7 +1,9 @@
 import type { Cards } from "../cards";
 import { assert, EMPTY_SET, unreachable, type Logger } from "../core";
-import { MULTI_VALUE_PROPS, PER_FACE_PROPS, PER_VERSION_PROPS, type Comparison_Condition, type Condition, type Conjunction_Condition, type Disjunction_Condition, type Mana_Cost, type Predicate_Condition, type Prop, type Query, type Range_Condition, type Substring_Condition } from "../query";
+import { MULTI_VALUE_PROPS, PER_FACE_PROPS, PER_VERSION_PROPS, type Comparison_Condition, type Condition, type Conjunction_Condition, type Disjunction_Condition, type Mana_Cost, type Predicate_Condition, type Prop, type Query, type Range_Condition, type Subset_Condition, type Substring_Condition } from "../query";
+import type { Subset_Store } from "../subset";
 import { Comparison_Operator, Enode_Type, Prop_Value_Type, type Enode, type Enode_Comparison, type Enode_Even, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Range, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
+import type { Indices } from "./indices";
 const freeze = Object.freeze;
 
 type Partial_Enode_Result =
@@ -16,45 +18,13 @@ const ALL_RESULT: Enode_Result = freeze({ all: true, node: null });
 
 export class Enode_Constructor {
     private readonly cards: Cards;
-    private readonly substring_indices: Map<Prop, Substring_Index> = new Map;
-    private data_creation_time: Date | null = null;
+    private readonly indices: Indices;
+    private readonly subset_store: Subset_Store;
 
-    constructor(cards: Cards) {
+    constructor(cards: Cards, indices: Indices, subset_store: Subset_Store) {
         this.cards = cards;
-    }
-
-    // TODO: Improve index rebuild speed.
-    // TODO: Only rebuild indices that are required.
-    rebuild_indices(logger: Logger) {
-        if (this.data_creation_time === this.cards.creation_time) {
-            logger.log('indices up-to-date');
-            return;
-        }
-
-        logger.time('rebuilding indices');
-
-        const name_inexact_data = this.cards.get_all<string>('name_inexact') ?? unreachable();
-        this.substring_indices.set('name_inexact', new Substring_Index(name_inexact_data, 3));
-
-        const name_search_data = this.cards.get_all<string>('name_search') ?? unreachable();
-        this.substring_indices.set('name_search', new Substring_Index(name_search_data, 3));
-
-        const oracle_search_data = this.cards.get_all<string>('oracle_search') ?? unreachable();
-        this.substring_indices.set('oracle_search', new Substring_Index(oracle_search_data, 3));
-
-        const full_oracle_search_data =
-            this.cards.get_all<string>('full_oracle_search') ?? unreachable();
-        this.substring_indices.set(
-            'full_oracle_search',
-            new Substring_Index(full_oracle_search_data, 3),
-        );
-
-        const type_search_data =
-            this.cards.get_all<ReadonlyArray<string>>('type_search') ?? unreachable();
-        this.substring_indices.set('type_search', new Substring_Index(type_search_data, 3));
-
-        this.data_creation_time = this.cards.creation_time;
-        logger.time_end('rebuilding indices');
+        this.indices = indices;
+        this.subset_store = subset_store;
     }
 
     construct_execution_tree(query: Query, logger: Logger): Enode_Result {
@@ -93,8 +63,8 @@ export class Enode_Constructor {
                 result = this.process_condition_range(condition, negate);
                 break;
             case 'subset':
-                // TODO: Process even, odd, range and subset.
-                unreachable(`TODO: ${condition.type}`);
+                result = this.process_condition_subset(condition, negate, logger);
+                break;
             default:
                 result = this.process_condition_comparison(condition, negate);
                 break;
@@ -279,9 +249,7 @@ export class Enode_Constructor {
             return ALL_RESULT;
         }
 
-        const index = this.substring_indices.get(condition.prop)
-            ?? unreachable(`No index for property ${condition.prop}.`);
-        const candidates = index.get_candidates(condition.value);
+        const { candidates, exact } = this.indices.get_candidates(condition.prop, condition.value);
 
         // Condition string is shorter than the index' n-gram size, need to execute over all cards.
         if (candidates === null) {
@@ -294,7 +262,7 @@ export class Enode_Constructor {
         }
 
         // Condition string is exactly the n-gram size, the candidate set is the exact result set.
-        if (condition.value.length === index.ngram_size) {
+        if (exact) {
             return { all: false, cards: candidates, node: null };
         }
 
@@ -342,6 +310,21 @@ export class Enode_Constructor {
             negated,
         };
         return { all: true, node };
+    }
+
+    private process_condition_subset(
+        condition: Subset_Condition,
+        negate: boolean,
+        logger: Logger,
+    ): Enode_Result {
+        const subset = this.subset_store.get(condition.id);
+
+        if (subset === null) {
+            logger.error(`Subset condition references nonexistent ID ${condition.id}.`);
+            return negate ? ALL_RESULT : NONE_RESULT;
+        }
+
+        return this.process_condition(subset.query.condition, negate, logger);
     }
 
     private create_enode_comparison(
@@ -433,75 +416,6 @@ export class Enode_Constructor {
         }
 
         return node;
-    }
-}
-
-class Substring_Index {
-    readonly ngrams: ReadonlyMap<string, ReadonlySet<number>>;
-    readonly ngram_size: number;
-
-    constructor(
-        values: ReadonlyArray<string> | ReadonlyArray<ReadonlyArray<string>>,
-        ngram_size: number,
-    ) {
-        const ngrams = new Map<string, Set<number>>;
-        const two_dims = Array.isArray(values[0]);
-
-        for (let card_idx = 0, len = values.length; card_idx < len; card_idx++) {
-            const v = values[card_idx];
-
-            if (two_dims) {
-                for (const value of v as ReadonlyArray<string>) {
-                    Substring_Index.add_to_ngrams(ngram_size, ngrams, card_idx, value);
-                }
-            } else {
-                Substring_Index.add_to_ngrams(ngram_size, ngrams, card_idx, v as string);
-            }
-        }
-
-        this.ngrams = ngrams;
-        this.ngram_size = ngram_size;
-    }
-
-    private static add_to_ngrams(
-        ngram_size: number,
-        ngrams: Map<string, Set<number>>,
-        card_idx: number,
-        value: string,
-    ): void {
-        for (let i = 0, end = value.length - ngram_size; i <= end; i++) {
-            const ngram = value.slice(i, i + ngram_size);
-            let set = ngrams.get(ngram);
-
-            if (set === undefined) {
-                set = new Set;
-                ngrams.set(ngram, set);
-            }
-
-            set.add(card_idx);
-        }
-    }
-
-    get_candidates(value: string): ReadonlySet<number> | null {
-        const ngrams = this.ngrams;
-        const ngram_size = this.ngram_size;
-        let candidates: ReadonlySet<number> | null = null;
-
-        for (let i = 0, end = value.length - ngram_size; i <= end; i++) {
-            const set = ngrams.get(value.slice(i, i + ngram_size));
-
-            if (set === undefined) {
-                return EMPTY_SET;
-            }
-
-            if (candidates) {
-                candidates = candidates.intersection(set);
-            } else {
-                candidates = set;
-            }
-        }
-
-        return candidates;
     }
 }
 

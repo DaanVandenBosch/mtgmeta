@@ -19,12 +19,13 @@ import { remove_parenthesized_text, type Cards } from "./cards";
 import { Subset_Store } from "./subset";
 import { query_hash } from "./query_hash";
 import { Query_Engine } from "./query/engine";
+import { Indices } from "./query/indices";
 
 export async function run_test_suite(cards: Cards) {
     Console_Logger.time('run_test_suite');
     Console_Logger.time('run_test_suite_setup');
 
-    const engine = new Query_Engine(cards);
+    const indices = new Indices(cards);
 
     const tests: { name: string, execute: (logger: Logger) => void | Promise<void> }[] = [];
 
@@ -81,7 +82,7 @@ export async function run_test_suite(cards: Cards) {
                 if (!deep_eq(actual, expected)) {
                     const missing_set = expected.difference(actual);
                     const unexpected_set = actual.difference(expected);
-                    const log_set = new Set();
+                    const log_set = new Set;
 
                     for (const c of missing_set) {
                         log_set.add(c);
@@ -129,11 +130,9 @@ export async function run_test_suite(cards: Cards) {
 
         test_query_helper(
             'engine',
-            (_subset_store, query, logger, card_logger) => engine.execute(
-                logger,
-                card_logger,
-                query,
-            ),
+            (subset_store, query, logger, card_logger) =>
+                new Query_Engine(cards, indices, subset_store)
+                    .execute(logger, card_logger, query,),
         );
     }
 
@@ -1093,6 +1092,8 @@ export async function run_test_suite(cards: Cards) {
     for (const load of loads) {
         await load;
     }
+
+    indices.rebuild(Console_Logger);
 
     Console_Logger.time_end('run_test_suite_setup');
     Console_Logger.time('run_test_suite_execute');
