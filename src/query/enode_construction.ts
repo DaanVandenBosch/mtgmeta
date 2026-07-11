@@ -1,7 +1,7 @@
 import type { Cards } from "../cards";
 import { assert, EMPTY_SET, unreachable, type Logger } from "../core";
-import { PER_FACE_PROPS, PER_VERSION_PROPS, type Comparison_Condition, type Condition, type Conjunction_Condition, type Disjunction_Condition, type Mana_Cost, type Prop, type Query, type Substring_Condition } from "../query";
-import { Comparison_Operator, Enode_Type, type Enode, type Enode_Comparison, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
+import { PER_FACE_PROPS, PER_VERSION_PROPS, type Comparison_Condition, type Condition, type Conjunction_Condition, type Disjunction_Condition, type Mana_Cost, type Predicate_Condition, type Prop, type Query, type Substring_Condition } from "../query";
+import { Comparison_Operator, Enode_Type, type Enode, type Enode_Comparison, type Enode_Even, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
 const freeze = Object.freeze;
 
 type Partial_Enode_Result =
@@ -38,6 +38,16 @@ export class Enode_Constructor {
 
         const name_search_data = this.cards.get_all<string>('name_search') ?? unreachable();
         this.substring_indices.set('name_search', new Substring_Index(name_search_data, 3));
+
+        const oracle_search_data = this.cards.get_all<string>('oracle_search') ?? unreachable();
+        this.substring_indices.set('oracle_search', new Substring_Index(oracle_search_data, 3));
+
+        const full_oracle_search_data =
+            this.cards.get_all<string>('full_oracle_search') ?? unreachable();
+        this.substring_indices.set(
+            'full_oracle_search',
+            new Substring_Index(full_oracle_search_data, 3),
+        );
 
         const type_search_data =
             this.cards.get_all<ReadonlyArray<string>>('type_search') ?? unreachable();
@@ -77,6 +87,8 @@ export class Enode_Constructor {
                 break;
             case 'even':
             case 'odd':
+                result = this.process_condition_predicate(condition, negate);
+                break;
             case 'range':
             case 'subset':
                 // TODO: Process even, odd, range and subset.
@@ -266,6 +278,24 @@ export class Enode_Constructor {
         };
     }
 
+    private process_condition_predicate(
+        condition: Predicate_Condition,
+        negate: boolean,
+    ): Enode_Result {
+        assert(condition.prop === 'cmc');
+
+        // TODO: Index for cmc.
+        const card_values = this.cards.get_all<number>(condition.prop) ?? unreachable();
+
+        const node: Enode_Even = {
+            type: Enode_Type.Even,
+            card_values,
+            negated: negate === (condition.type === 'even'),
+        };
+
+        return { all: true, node };
+    }
+
     private create_enode_comparison(
         condition: Comparison_Condition,
         negate: boolean,
@@ -313,7 +343,7 @@ export class Enode_Constructor {
                 condition_value: condition.value as number,
                 operator,
                 negated: negate !== negated,
-            }
+            };
         } else {
             assert(
                 condition.prop === 'colors'
@@ -328,7 +358,7 @@ export class Enode_Constructor {
                 condition_value: condition.value as Mana_Cost,
                 operator,
                 negated: negate !== negated,
-            }
+            };
         }
 
         return node;

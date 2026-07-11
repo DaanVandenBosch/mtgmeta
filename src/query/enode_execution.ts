@@ -2,7 +2,7 @@ import type { Cards } from "../cards";
 import { unreachable, type Logger } from "../core";
 import { MANA_GENERIC, type Mana_Cost } from "../query";
 import { Bitset, Bitset_32, type Uint_Set } from "../uint_set";
-import { Comparison_Operator, Enode_Type, type Enode, type Enode_Comparison, type Enode_Conjunction, type Enode_Disjunction, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
+import { Comparison_Operator, Enode_Type, type Enode, type Enode_Comparison, type Enode_Conjunction, type Enode_Disjunction, type Enode_Even, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
 
 export class Enode_Executor {
     private readonly cards: Cards;
@@ -71,6 +71,9 @@ export class Enode_Executor {
                 break;
             case Enode_Type.Substring_Per_face:
                 this.execute_node_substring_per_face(node, card_idx, versions);
+                break;
+            case Enode_Type.Even:
+                this.execute_node_even(node, card_idx, versions);
                 break;
             default:
                 unreachable();
@@ -378,6 +381,18 @@ export class Enode_Executor {
         }
 
         versions.clear();
+    }
+
+    private execute_node_even(
+        node: Enode_Even,
+        card_idx: number,
+        versions: Uint_Set,
+    ): void {
+        const even = node.card_values[card_idx] % 2 === 0;
+
+        if (even === node.negated) {
+            versions.clear();
+        }
     }
 }
 

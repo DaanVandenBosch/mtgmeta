@@ -1010,6 +1010,16 @@ export async function run_test_suite(cards: Cards) {
         [],
     );
     test_query(
+        'even',
+        'cmc:even belly',
+        ['Blightbelly Rat', 'Fire-Belly Changeling', 'Lead-Belly Chimera'],
+    );
+    test_query(
+        'odd',
+        'cmc:odd belly',
+        ['Lavabelly Sliver', 'Poisonbelly Ogre', 'Ravenous Rotbelly'],
+    );
+    test_query(
         'subset',
         'subset:Simple',
         ['Mana Matrix'],

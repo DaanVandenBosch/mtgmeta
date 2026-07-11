@@ -14,6 +14,7 @@ export enum Enode_Type {
     Mana_Cost_Number = 5,
     Substring = 6,
     Substring_Per_face = 7,
+    Even = 8,
 }
 
 /** Execution node. */
@@ -24,7 +25,8 @@ export type Enode =
     Enode_Mana_Cost |
     Enode_Mana_Cost_Number |
     Enode_Substring |
-    Enode_Substring_Per_face;
+    Enode_Substring_Per_face |
+    Enode_Even;
 
 export type Enode_Disjunction = {
     readonly type: Enode_Type.Disjunction,
@@ -74,5 +76,11 @@ export type Enode_Substring_Per_face = {
     readonly type: Enode_Type.Substring_Per_face,
     readonly card_values: ReadonlyArray<ReadonlyArray<string>>,
     readonly condition_value: string,
+    readonly negated: boolean,
+}
+
+export type Enode_Even = {
+    readonly type: Enode_Type.Even,
+    readonly card_values: ReadonlyArray<number>,
     readonly negated: boolean,
 }
