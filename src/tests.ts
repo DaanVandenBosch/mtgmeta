@@ -7,6 +7,7 @@ import {
     Nop_Logger,
     pop_count_32,
     to_string,
+    unreachable,
     type Logger,
 } from "./core";
 import { Array_Set, Bitset, Bitset_32 } from "./uint_set";
@@ -151,17 +152,60 @@ export async function run_test_suite(cards: Cards) {
         assert_eq(s.size, 0);
     });
     test('Bitset fill.', () => {
-        const s = Bitset.with_cap(40);
-        s.fill();
+        for (let cap = 0; cap < 96; cap++) {
+            const s = Bitset.with_cap(cap);
+            s.fill();
 
-        assert_eq(s.size, 40);
+            assert_eq(s.size, cap);
 
-        for (let i = 0; i < 40; i++) {
-            assert(s.has(i));
+            for (let i = 0; i < cap; i++) {
+                assert(s.has(i));
+            }
+
+            // Only the relevant bits of the last u32 should be set.
+            if (cap > 0) {
+                let slot: number;
+
+                switch (cap % 32) {
+                    // Empty comments for alignment.
+                    case /* */ 1: slot = 0b1; break;
+                    case /* */ 2: slot = 0b11; break;
+                    case /* */ 3: slot = 0b111; break;
+                    case /* */ 4: slot = 0b1111; break;
+                    case /* */ 5: slot = 0b11111; break;
+                    case /* */ 6: slot = 0b111111; break;
+                    case /* */ 7: slot = 0b1111111; break;
+                    case /* */ 8: slot = 0b11111111; break;
+                    case /* */ 9: slot = 0b111111111; break;
+                    case /**/ 10: slot = 0b1111111111; break;
+                    case /**/ 11: slot = 0b11111111111; break;
+                    case /**/ 12: slot = 0b111111111111; break;
+                    case /**/ 13: slot = 0b1111111111111; break;
+                    case /**/ 14: slot = 0b11111111111111; break;
+                    case /**/ 15: slot = 0b111111111111111; break;
+                    case /**/ 16: slot = 0b1111111111111111; break;
+                    case /**/ 17: slot = 0b11111111111111111; break;
+                    case /**/ 18: slot = 0b111111111111111111; break;
+                    case /**/ 19: slot = 0b1111111111111111111; break;
+                    case /**/ 20: slot = 0b11111111111111111111; break;
+                    case /**/ 21: slot = 0b111111111111111111111; break;
+                    case /**/ 22: slot = 0b1111111111111111111111; break;
+                    case /**/ 23: slot = 0b11111111111111111111111; break;
+                    case /**/ 24: slot = 0b111111111111111111111111; break;
+                    case /**/ 25: slot = 0b1111111111111111111111111; break;
+                    case /**/ 26: slot = 0b11111111111111111111111111; break;
+                    case /**/ 27: slot = 0b111111111111111111111111111; break;
+                    case /**/ 28: slot = 0b1111111111111111111111111111; break;
+                    case /**/ 29: slot = 0b11111111111111111111111111111; break;
+                    case /**/ 30: slot = 0b111111111111111111111111111111; break;
+                    case /**/ 31: slot = 0b1111111111111111111111111111111; break;
+                    case /* */ 0: slot = 0b11111111111111111111111111111111; break;
+                    default: unreachable();
+                }
+
+                assert_eq(s.data[s.data.length - 1], slot);
+            }
         }
-
-        // Only 8 bits of the last u32 should be set.
-        assert_eq(s.data[s.data.length - 1], 0xFF);
     });
     test('Bitset delete.', () => {
         const s = Bitset.with_cap(40);
@@ -961,7 +1005,7 @@ export async function run_test_suite(cards: Cards) {
     );
     test_query(
         'date>= and date<=',
-        'date>=2003-04 date<=2003-08 grave',
+        'grave date<=2003-08 date>=2003-04',
         ['Call to the Grave', 'Gravedigger', 'Grave Pact', 'Reaping the Graves'],
     );
     test_query(

@@ -98,7 +98,8 @@ export class Bitset implements Uint_Set {
         const cap = this.cap;
         const len = data.length;
         data.fill(0xFFFFFFFF, 0, len - 1);
-        data[len - 1] = (1 << (cap & 0b11111)) - 1;
+        const cap_mod_32 = cap & 0b11111;
+        data[len - 1] = (cap_mod_32 === 0) ? 0xFFFFFFFF : ((1 << cap_mod_32) - 1);
         this.size = cap;
     }
 
