@@ -136,6 +136,9 @@ export const PROPS: readonly Prop[] = freeze([
     'type',
     'type_search',
 ]);
+export const MULTI_VALUE_PROPS: readonly Prop[] = freeze([
+    'formats',
+]);
 export const PER_FACE_PROPS: readonly Prop[] = freeze([
     'colors',
     'cost',

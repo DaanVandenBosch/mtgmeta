@@ -6,15 +6,23 @@ export enum Comparison_Operator {
     LE = 3,
 }
 
+export enum Prop_Value_Type {
+    Single = 1,
+    Multi = 2,
+    Per_Face = 3,
+    Per_Version = 4,
+}
+
 export enum Enode_Type {
     Disjunction = 1,
     Conjunction = 2,
     Comparison = 3,
-    Mana_Cost = 4,
-    Mana_Cost_Number = 5,
-    Substring = 6,
-    Substring_Per_face = 7,
-    Even = 8,
+    Reprint = 4,
+    Mana_Cost = 5,
+    Mana_Cost_Number = 6,
+    Substring = 7,
+    Substring_Per_face = 8,
+    Even = 9,
 }
 
 /** Execution node. */
@@ -22,6 +30,7 @@ export type Enode =
     Enode_Disjunction |
     Enode_Conjunction |
     Enode_Comparison |
+    Enode_Reprint |
     Enode_Mana_Cost |
     Enode_Mana_Cost_Number |
     Enode_Substring |
@@ -40,16 +49,21 @@ export type Enode_Conjunction = {
 
 export type Enode_Comparison = {
     readonly type: Enode_Type.Comparison,
-    readonly card_values: ReadonlyArray<unknown>,
-    readonly values_are_arrays: boolean,
+    readonly values: ReadonlyArray<unknown>,
+    readonly value_type: Prop_Value_Type,
     readonly condition_value: number | boolean | string | Mana_Cost
     readonly operator: Comparison_Operator,
     readonly negated: boolean,
 }
 
+export type Enode_Reprint = {
+    readonly type: Enode_Type.Reprint,
+    readonly negated: boolean,
+}
+
 export type Enode_Mana_Cost = {
     readonly type: Enode_Type.Mana_Cost,
-    readonly card_values: ReadonlyArray<Mana_Cost | ReadonlyArray<Mana_Cost | null>>,
+    readonly values: ReadonlyArray<Mana_Cost | ReadonlyArray<Mana_Cost | null>>,
     readonly per_face: boolean,
     readonly condition_value: Mana_Cost,
     readonly operator: Comparison_Operator,
@@ -58,7 +72,7 @@ export type Enode_Mana_Cost = {
 
 export type Enode_Mana_Cost_Number = {
     readonly type: Enode_Type.Mana_Cost_Number,
-    readonly card_values: ReadonlyArray<Mana_Cost | ReadonlyArray<Mana_Cost | null>>,
+    readonly values: ReadonlyArray<Mana_Cost | ReadonlyArray<Mana_Cost | null>>,
     readonly per_face: boolean,
     readonly condition_value: number,
     readonly operator: Comparison_Operator,
@@ -67,20 +81,20 @@ export type Enode_Mana_Cost_Number = {
 
 export type Enode_Substring = {
     readonly type: Enode_Type.Substring,
-    readonly card_values: ReadonlyArray<string>,
+    readonly values: ReadonlyArray<string>,
     readonly condition_value: string,
     readonly negated: boolean,
 }
 
 export type Enode_Substring_Per_face = {
     readonly type: Enode_Type.Substring_Per_face,
-    readonly card_values: ReadonlyArray<ReadonlyArray<string>>,
+    readonly values: ReadonlyArray<ReadonlyArray<string>>,
     readonly condition_value: string,
     readonly negated: boolean,
 }
 
 export type Enode_Even = {
     readonly type: Enode_Type.Even,
-    readonly card_values: ReadonlyArray<number>,
+    readonly values: ReadonlyArray<number>,
     readonly negated: boolean,
 }

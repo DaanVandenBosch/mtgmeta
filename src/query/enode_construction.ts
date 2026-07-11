@@ -1,7 +1,7 @@
 import type { Cards } from "../cards";
 import { assert, EMPTY_SET, unreachable, type Logger } from "../core";
-import { PER_FACE_PROPS, PER_VERSION_PROPS, type Comparison_Condition, type Condition, type Conjunction_Condition, type Disjunction_Condition, type Mana_Cost, type Predicate_Condition, type Prop, type Query, type Substring_Condition } from "../query";
-import { Comparison_Operator, Enode_Type, type Enode, type Enode_Comparison, type Enode_Even, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
+import { MULTI_VALUE_PROPS, PER_FACE_PROPS, PER_VERSION_PROPS, type Comparison_Condition, type Condition, type Conjunction_Condition, type Disjunction_Condition, type Mana_Cost, type Predicate_Condition, type Prop, type Query, type Substring_Condition } from "../query";
+import { Comparison_Operator, Enode_Type, Prop_Value_Type, type Enode, type Enode_Comparison, type Enode_Even, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
 const freeze = Object.freeze;
 
 type Partial_Enode_Result =
@@ -108,12 +108,24 @@ export class Enode_Constructor {
         negate: boolean,
         logger: Logger,
     ): Enode_Result {
+        if (negate) {
+            return this.process_condition_conjunction_internal(condition.conditions, true, logger);
+        } else {
+            return this.process_condition_disjunction_internal(condition.conditions, false, logger);
+        }
+    }
+
+    private process_condition_disjunction_internal(
+        child_conditions: ReadonlyArray<Condition>,
+        negate_children: boolean,
+        logger: Logger,
+    ): Enode_Result {
         const cards_len = this.cards.length ?? unreachable();
         let result: Partial_Enode_Result = NONE_RESULT;
         const children: Enode[] = [];
 
-        for (const cond of condition.conditions) {
-            const child_result = this.process_condition(cond, negate, logger);
+        for (const cond of child_conditions) {
+            const child_result = this.process_condition(cond, negate_children, logger);
 
             if (child_result.all) {
                 if (child_result.node) {
@@ -153,8 +165,6 @@ export class Enode_Constructor {
             node = null;
         } else if (children.length === 1) {
             node = children[0];
-        } else if (negate) {
-            node = { type: Enode_Type.Conjunction, children };
         } else {
             node = { type: Enode_Type.Disjunction, children };
         }
@@ -167,11 +177,23 @@ export class Enode_Constructor {
         negate: boolean,
         logger: Logger,
     ): Enode_Result {
+        if (negate) {
+            return this.process_condition_disjunction_internal(condition.conditions, true, logger);
+        } else {
+            return this.process_condition_conjunction_internal(condition.conditions, false, logger);
+        }
+    }
+
+    private process_condition_conjunction_internal(
+        child_conditions: ReadonlyArray<Condition>,
+        negate_children: boolean,
+        logger: Logger,
+    ): Enode_Result {
         let result: Partial_Enode_Result = ALL_RESULT;
         const children: Enode[] = [];
 
-        for (const cond of condition.conditions) {
-            const child_result = this.process_condition(cond, negate, logger);
+        for (const cond of child_conditions) {
+            const child_result = this.process_condition(cond, negate_children, logger);
 
             if (result.all) {
                 result = child_result;
@@ -204,8 +226,6 @@ export class Enode_Constructor {
             node = null;
         } else if (children.length === 1) {
             node = children[0];
-        } else if (negate) {
-            node = { type: Enode_Type.Disjunction, children };
         } else {
             node = { type: Enode_Type.Conjunction, children };
         }
@@ -227,6 +247,13 @@ export class Enode_Constructor {
             case 'rarity': {
                 // TODO: rarity.
                 unreachable(`TODO: ${condition.prop}`);
+            }
+            case 'reprint': {
+                assert(condition.type === 'eq' || condition.type === 'ne');
+                // TODO: Index for reprint?
+                const condition_value = (condition.type === 'eq') === condition.value;
+                const negated = condition_value === negate;
+                return { all: true, node: { type: Enode_Type.Reprint, negated } };
             }
             default: {
                 // Comparison condition.
@@ -284,11 +311,11 @@ export class Enode_Constructor {
         assert(condition.prop === 'cmc');
 
         // TODO: Index for cmc.
-        const card_values = this.cards.get_all<number>(condition.prop) ?? unreachable();
+        const values = this.cards.get_all<number>(condition.prop) ?? unreachable();
 
         const node: Enode_Even = {
             type: Enode_Type.Even,
-            card_values,
+            values,
             negated: negate === (condition.type === 'even'),
         };
 
@@ -299,22 +326,27 @@ export class Enode_Constructor {
         condition: Comparison_Condition,
         negate: boolean,
     ): Enode_Comparison {
-        assert(
-            !PER_VERSION_PROPS.includes(condition.prop),
-            () => `TODO: Per-version properties not yet supported (${condition.prop}).`,
-        );
+        const values = this.cards.get_all<any>(condition.prop) ?? unreachable();
+        let value_type: Prop_Value_Type;
 
-        const card_values = this.cards.get_all<any>(condition.prop) ?? unreachable();
-        const values_are_arrays =
-            PER_FACE_PROPS.includes(condition.prop) || condition.prop === 'formats';
+        if (PER_VERSION_PROPS.includes(condition.prop)) {
+            value_type = Prop_Value_Type.Per_Version;
+        } else if (PER_FACE_PROPS.includes(condition.prop)) {
+            value_type = Prop_Value_Type.Per_Face;
+        } else if (MULTI_VALUE_PROPS.includes(condition.prop)) {
+            value_type = Prop_Value_Type.Multi;
+        } else {
+            value_type = Prop_Value_Type.Single;
+        }
+
         const condition_value =
             condition.value instanceof Date ? condition.value.getTime() : condition.value;
         const [operator, negated] = condition_type_to_comparison_operator(condition.type);
 
         return {
             type: Enode_Type.Comparison,
-            card_values,
-            values_are_arrays,
+            values,
+            value_type,
             condition_value,
             operator,
             negated: negate !== negated,
@@ -325,7 +357,7 @@ export class Enode_Constructor {
         condition: Comparison_Condition,
         negate: boolean,
     ): Enode_Mana_Cost | Enode_Mana_Cost_Number {
-        const card_values =
+        const values =
             this.cards.get_all<Mana_Cost | ReadonlyArray<Mana_Cost | null>>(condition.prop)
             ?? unreachable();
         const per_face = PER_FACE_PROPS.includes(condition.prop);
@@ -338,7 +370,7 @@ export class Enode_Constructor {
 
             node = {
                 type: Enode_Type.Mana_Cost_Number,
-                card_values,
+                values,
                 per_face,
                 condition_value: condition.value as number,
                 operator,
@@ -353,7 +385,7 @@ export class Enode_Constructor {
 
             node = {
                 type: Enode_Type.Mana_Cost,
-                card_values,
+                values: values,
                 per_face,
                 condition_value: condition.value as Mana_Cost,
                 operator,
@@ -371,21 +403,21 @@ export class Enode_Constructor {
         assert(!PER_VERSION_PROPS.includes(condition.prop));
 
         const per_face = PER_FACE_PROPS.includes(condition.prop);
-        const card_values = this.cards.get_all<unknown>(condition.prop) ?? unreachable();
+        const values = this.cards.get_all<unknown>(condition.prop) ?? unreachable();
 
         let node: Enode_Substring | Enode_Substring_Per_face;
 
         if (per_face) {
             node = {
                 type: Enode_Type.Substring_Per_face,
-                card_values: card_values as ReadonlyArray<ReadonlyArray<string>>,
+                values: values as ReadonlyArray<ReadonlyArray<string>>,
                 condition_value: condition.value,
                 negated,
             };
         } else {
             node = {
                 type: Enode_Type.Substring,
-                card_values: card_values as ReadonlyArray<string>,
+                values: values as ReadonlyArray<string>,
                 condition_value: condition.value,
                 negated,
             };

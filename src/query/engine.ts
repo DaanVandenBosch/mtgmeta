@@ -25,17 +25,17 @@ export class Query_Engine {
 
         this.enode_constructor.rebuild_indices(logger);
 
-        logger.group('execution tree construction');
-        logger.time('execution tree construction');
+        logger.group('enode construction');
+        logger.time('enode construction');
 
         const enode_result = this.enode_constructor.construct_execution_tree(query, logger);
-        logger.log('execution tree construction result:', enode_result);
+        logger.log('enode construction result:', enode_result);
 
-        logger.time_end('execution tree construction');
+        logger.time_end('enode construction');
         logger.group_end();
 
-        logger.group('execution');
-        logger.time('execution');
+        logger.group('enode execution');
+        logger.time('enode execution');
 
         const enode = enode_result.node;
 
@@ -72,7 +72,7 @@ export class Query_Engine {
             }
         }
 
-        logger.time_end('execution');
+        logger.time_end('enode execution');
         logger.group_end();
         logger.time_end('full execution');
         return result;

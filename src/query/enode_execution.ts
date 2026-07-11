@@ -1,8 +1,8 @@
 import type { Cards } from "../cards";
 import { unreachable, type Logger } from "../core";
 import { MANA_GENERIC, type Mana_Cost } from "../query";
-import { Bitset, Bitset_32, type Uint_Set } from "../uint_set";
-import { Comparison_Operator, Enode_Type, type Enode, type Enode_Comparison, type Enode_Conjunction, type Enode_Disjunction, type Enode_Even, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
+import { Bitset, type Uint_Set } from "../uint_set";
+import { Comparison_Operator, Enode_Type, Prop_Value_Type, type Enode, type Enode_Comparison, type Enode_Conjunction, type Enode_Disjunction, type Enode_Even, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Reprint, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
 
 export class Enode_Executor {
     private readonly cards: Cards;
@@ -24,14 +24,12 @@ export class Enode_Executor {
 
         if (logger.should_log) {
             const name = this.cards.name(card_idx);
-            logger.group('executing node tree for:', name, card_idx, 'versions:', version_count);
+            logger.log('executing node tree for:', name, card_idx, 'versions:', version_count);
         }
 
         // TODO: Check if instantiating set once outside of the loop is faster.
-        const versions =
-            version_count <= 32
-                ? Bitset_32.with_cap(version_count)
-                : Bitset.with_cap(version_count);
+        // TODO: Small set optimization?
+        const versions = Bitset.with_cap(version_count);
         versions.fill();
 
         this.execute_node(logger, node, card_idx, versions);
@@ -41,11 +39,9 @@ export class Enode_Executor {
         if (version_idx !== null) {
             execution_result.set(card_idx, version_idx);
         }
-
-        logger.group_end();
     }
 
-    private execute_node(logger: Logger, node: Enode, card_idx: number, versions: Uint_Set): void {
+    private execute_node(logger: Logger, node: Enode, card_idx: number, versions: Bitset): void {
         if (logger.should_log) {
             logger.group(Enode_Type[node.type], node);
         }
@@ -59,6 +55,9 @@ export class Enode_Executor {
                 break;
             case Enode_Type.Comparison:
                 this.execute_node_comparison(node, card_idx, versions);
+                break;
+            case Enode_Type.Reprint:
+                this.execute_node_reprint(node, versions);
                 break;
             case Enode_Type.Mana_Cost:
                 this.execute_node_mana_cost(logger, node, card_idx, versions);
@@ -89,7 +88,7 @@ export class Enode_Executor {
         logger: Logger,
         node: Enode_Disjunction,
         card_idx: number,
-        versions: Uint_Set,
+        versions: Bitset,
     ): void {
         const orig_versions = versions.copy();
         // TODO: Don't make a copy, create a new Uint_Set for child_versions.
@@ -111,7 +110,7 @@ export class Enode_Executor {
         logger: Logger,
         node: Enode_Conjunction,
         card_idx: number,
-        versions: Uint_Set,
+        versions: Bitset,
     ): void {
         for (const child of node.children) {
             this.execute_node(logger, child, card_idx, versions);
@@ -125,23 +124,14 @@ export class Enode_Executor {
     private execute_node_comparison(
         node: Enode_Comparison,
         card_idx: number,
-        versions: Uint_Set,
+        versions: Bitset,
     ): void {
-        const value_or_values = node.card_values[card_idx] as any;
+        const value_or_values = node.values[card_idx] as any;
         const condition_value = node.condition_value;
 
-        if (node.values_are_arrays) {
-            const values = value_or_values as ReadonlyArray<any>;
-            // We return true as soon as a value is found for which the comparison function returns
-            // true, except when the condition is of type "ne".
-            const sentinel = !(node.operator === Comparison_Operator.EQ && node.negated);
-
-            for (const value of values) {
-                // Ignore non-existent values.
-                if (value === null) {
-                    continue;
-                }
-
+        switch (node.value_type) {
+            case Prop_Value_Type.Single: {
+                const value = value_or_values;
                 let result: boolean;
 
                 switch (node.operator) {
@@ -158,43 +148,128 @@ export class Enode_Executor {
                         unreachable();
                 }
 
-                // Invert result when negated.
-                result = result !== node.negated;
+                // Clear set when result is false, invert result when negated.
+                if (result === node.negated) {
+                    versions.clear();
+                }
 
-                if (result === sentinel) {
-                    if (!sentinel) {
-                        versions.clear();
+                break;
+            }
+            case Prop_Value_Type.Multi:
+            case Prop_Value_Type.Per_Face: {
+                const values = value_or_values as ReadonlyArray<any>;
+                // We return true as soon as a value is found for which the comparison function returns
+                // true, except when the condition is of type "ne".
+                const sentinel = !(node.operator === Comparison_Operator.EQ && node.negated);
+
+                for (const value of values) {
+                    // Ignore non-existent values.
+                    if (value === null) {
+                        continue;
                     }
 
-                    return;
-                }
-            }
+                    let result: boolean;
 
-            if (sentinel) {
-                versions.clear();
+                    switch (node.operator) {
+                        case Comparison_Operator.EQ:
+                            result = value === condition_value;
+                            break;
+                        case Comparison_Operator.LT:
+                            result = value < condition_value;
+                            break;
+                        case Comparison_Operator.LE:
+                            result = value <= condition_value;
+                            break;
+                        default:
+                            unreachable();
+                    }
+
+                    // Invert result when negated.
+                    result = result !== node.negated;
+
+                    if (result === sentinel) {
+                        if (!sentinel) {
+                            versions.clear();
+                        }
+
+                        return;
+                    }
+                }
+
+                if (sentinel) {
+                    versions.clear();
+                }
+
+                break;
+            }
+            case Prop_Value_Type.Per_Version: {
+                const values = value_or_values as ReadonlyArray<any>;
+                const versions_data = versions.data;
+                const len = versions_data.length;
+                let bits_left = versions.cap;
+                let size = versions.size;
+
+                for (let i = 0; i < len; i++, bits_left -= 32) {
+                    let slot = versions_data[i];
+
+                    if (slot === 0) {
+                        continue;
+                    }
+
+                    const bits_end = Math.min(bits_left, 32);
+
+                    for (let j = 0; j < bits_end; j++) {
+                        if ((slot & (1 << j)) === 0) {
+                            continue;
+                        }
+
+                        const version_idx = i * 32 + j;
+                        const value = values[version_idx];
+                        let result: boolean;
+
+                        switch (node.operator) {
+                            case Comparison_Operator.EQ:
+                                result = value === condition_value;
+                                break;
+                            case Comparison_Operator.LT:
+                                result = value < condition_value;
+                                break;
+                            case Comparison_Operator.LE:
+                                result = value <= condition_value;
+                                break;
+                            default:
+                                unreachable();
+                        }
+
+                        // Clear bit when result is false, invert result when negated.
+                        if (result === node.negated) {
+                            slot &= ~(1 << j);
+                            size -= 1;
+                        }
+                    }
+
+                    versions_data[i] = slot;
+                }
+
+                versions.size = size;
+                break;
+            }
+            default: {
+                unreachable();
+            }
+        }
+    }
+
+    private execute_node_reprint(node: Enode_Reprint, versions: Bitset): void {
+        if (node.negated) {
+            const has_version_0 = versions.has(0);
+            versions.clear();
+
+            if (has_version_0) {
+                versions.insert(0);
             }
         } else {
-            const value = value_or_values;
-            let result: boolean;
-
-            switch (node.operator) {
-                case Comparison_Operator.EQ:
-                    result = value === condition_value;
-                    break;
-                case Comparison_Operator.LT:
-                    result = value < condition_value;
-                    break;
-                case Comparison_Operator.LE:
-                    result = value <= condition_value;
-                    break;
-                default:
-                    unreachable();
-            }
-
-            // Clear set when result is false, invert result when negated.
-            if (result === node.negated) {
-                versions.clear();
-            }
+            versions.delete(0);
         }
     }
 
@@ -205,7 +280,7 @@ export class Enode_Executor {
         versions: Uint_Set,
     ): void {
         const condition_value = node.condition_value;
-        const value_or_values = node.card_values[card_idx];
+        const value_or_values = node.values[card_idx];
 
         if (node.per_face) {
             const values = value_or_values as ReadonlyArray<Mana_Cost | null>;
@@ -285,7 +360,7 @@ export class Enode_Executor {
         versions: Uint_Set,
     ): void {
         const condition_value = node.condition_value;
-        const value_or_values = node.card_values[card_idx];
+        const value_or_values = node.values[card_idx];
 
         if (node.per_face) {
             const values = value_or_values as ReadonlyArray<Mana_Cost | null>;
@@ -361,7 +436,7 @@ export class Enode_Executor {
         card_idx: number,
         versions: Uint_Set,
     ): void {
-        if (node.card_values[card_idx].includes(node.condition_value) === node.negated) {
+        if (node.values[card_idx].includes(node.condition_value) === node.negated) {
             versions.clear();
         }
     }
@@ -372,15 +447,25 @@ export class Enode_Executor {
         versions: Uint_Set,
     ): void {
         const condition_value = node.condition_value;
-        const negated = node.negated;
 
-        for (const value of node.card_values[card_idx]) {
-            if (value.includes(condition_value) !== negated) {
-                return;
+        if (node.negated) {
+            // No values should match.
+            for (const value of node.values[card_idx]) {
+                if (value.includes(condition_value)) {
+                    versions.clear();
+                    return;
+                }
             }
-        }
+        } else {
+            // At least one value should match.
+            for (const value of node.values[card_idx]) {
+                if (value.includes(condition_value)) {
+                    return;
+                }
+            }
 
-        versions.clear();
+            versions.clear();
+        }
     }
 
     private execute_node_even(
@@ -388,7 +473,7 @@ export class Enode_Executor {
         card_idx: number,
         versions: Uint_Set,
     ): void {
-        const even = node.card_values[card_idx] % 2 === 0;
+        const even = node.values[card_idx] % 2 === 0;
 
         if (even === node.negated) {
             versions.clear();

@@ -1010,6 +1010,11 @@ export async function run_test_suite(cards: Cards) {
         [],
     );
     test_query(
+        'large query tree',
+        'grave -t:ench -(stone or (t:land (cairn or lan)) or t:creature) -(t:instant or t:sorcery)',
+        ['Elephant Graveyard', 'Graveyard Shovel', "Titan's Grave", 'Watery Grave'],
+    );
+    test_query(
         'even',
         'cmc:even belly',
         ['Blightbelly Rat', 'Fire-Belly Changeling', 'Lead-Belly Chimera'],
