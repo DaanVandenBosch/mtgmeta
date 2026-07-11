@@ -23,6 +23,7 @@ export enum Enode_Type {
     Substring = 7,
     Substring_Per_face = 8,
     Even = 9,
+    Range = 10,
 }
 
 /** Execution node. */
@@ -35,7 +36,8 @@ export type Enode =
     Enode_Mana_Cost_Number |
     Enode_Substring |
     Enode_Substring_Per_face |
-    Enode_Even;
+    Enode_Even |
+    Enode_Range;
 
 export type Enode_Disjunction = {
     readonly type: Enode_Type.Disjunction,
@@ -51,7 +53,7 @@ export type Enode_Comparison = {
     readonly type: Enode_Type.Comparison,
     readonly values: ReadonlyArray<unknown>,
     readonly value_type: Prop_Value_Type,
-    readonly condition_value: number | boolean | string | Mana_Cost
+    readonly condition_value: number | boolean | string | Mana_Cost,
     readonly operator: Comparison_Operator,
     readonly negated: boolean,
 }
@@ -96,5 +98,16 @@ export type Enode_Substring_Per_face = {
 export type Enode_Even = {
     readonly type: Enode_Type.Even,
     readonly values: ReadonlyArray<number>,
+    readonly negated: boolean,
+}
+
+export type Enode_Range = {
+    readonly type: Enode_Type.Range,
+    readonly values: ReadonlyArray<unknown>,
+    readonly value_type: Prop_Value_Type,
+    readonly start: number | boolean | string,
+    readonly start_inc: boolean,
+    readonly end: number | boolean | string,
+    readonly end_inc: boolean,
     readonly negated: boolean,
 }

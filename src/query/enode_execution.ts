@@ -2,7 +2,7 @@ import type { Cards } from "../cards";
 import { unreachable, type Logger } from "../core";
 import { MANA_GENERIC, type Mana_Cost } from "../query";
 import { Bitset, type Uint_Set } from "../uint_set";
-import { Comparison_Operator, Enode_Type, Prop_Value_Type, type Enode, type Enode_Comparison, type Enode_Conjunction, type Enode_Disjunction, type Enode_Even, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Reprint, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
+import { Comparison_Operator, Enode_Type, Prop_Value_Type, type Enode, type Enode_Comparison, type Enode_Conjunction, type Enode_Disjunction, type Enode_Even, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Range, type Enode_Reprint, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
 
 export class Enode_Executor {
     private readonly cards: Cards;
@@ -73,6 +73,9 @@ export class Enode_Executor {
                 break;
             case Enode_Type.Even:
                 this.execute_node_even(node, card_idx, versions);
+                break;
+            case Enode_Type.Range:
+                this.execute_node_range(node, card_idx, versions);
                 break;
             default:
                 unreachable();
@@ -477,6 +480,105 @@ export class Enode_Executor {
 
         if (even === node.negated) {
             versions.clear();
+        }
+    }
+
+    private execute_node_range(
+        node: Enode_Range,
+        card_idx: number,
+        versions: Bitset,
+    ): void {
+        const value_or_values = node.values[card_idx] as any;
+        const start = node.start;
+        const start_inc = node.start_inc;
+        const end = node.end;
+        const end_inc = node.end_inc;
+
+        switch (node.value_type) {
+            case Prop_Value_Type.Single: {
+                const value = value_or_values;
+                const result = (start_inc ? value >= start : value > start)
+                    && (end_inc ? value <= end : value < end);
+
+                // Clear set when result is false, invert result when negated.
+                if (result === node.negated) {
+                    versions.clear();
+                }
+
+                break;
+            }
+            case Prop_Value_Type.Multi:
+            case Prop_Value_Type.Per_Face: {
+                const values = value_or_values as ReadonlyArray<any>;
+                // We return true as soon as a value is found for which the comparison function
+                // returns true.
+                for (const value of values) {
+                    // Ignore non-existent values.
+                    if (value === null) {
+                        continue;
+                    }
+
+                    let result = (start_inc ? value >= start : value > start)
+                        && (end_inc ? value <= end : value < end);
+
+                    if (result) {
+                        if (node.negated) {
+                            versions.clear();
+                        }
+
+                        return;
+                    }
+                }
+
+                if (!node.negated) {
+                    versions.clear();
+                }
+
+                break;
+            }
+            case Prop_Value_Type.Per_Version: {
+                const values = value_or_values as ReadonlyArray<any>;
+                const versions_data = versions.data;
+                const len = versions_data.length;
+                let bits_left = versions.cap;
+                let size = versions.size;
+
+                for (let i = 0; i < len; i++, bits_left -= 32) {
+                    let slot = versions_data[i];
+
+                    if (slot === 0) {
+                        continue;
+                    }
+
+                    const bits_end = Math.min(bits_left, 32);
+
+                    for (let j = 0; j < bits_end; j++) {
+                        if ((slot & (1 << j)) === 0) {
+                            continue;
+                        }
+
+                        const version_idx = i * 32 + j;
+                        const value = values[version_idx];
+
+                        const result = (start_inc ? value >= start : value > start)
+                            && (end_inc ? value <= end : value < end);
+
+                        // Clear bit when result is false, invert result when negated.
+                        if (result === node.negated) {
+                            slot &= ~(1 << j);
+                            size -= 1;
+                        }
+                    }
+
+                    versions_data[i] = slot;
+                }
+
+                versions.size = size;
+                break;
+            }
+            default: {
+                unreachable();
+            }
         }
     }
 }

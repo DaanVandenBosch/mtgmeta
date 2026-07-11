@@ -1,7 +1,7 @@
 import type { Cards } from "../cards";
 import { assert, EMPTY_SET, unreachable, type Logger } from "../core";
-import { MULTI_VALUE_PROPS, PER_FACE_PROPS, PER_VERSION_PROPS, type Comparison_Condition, type Condition, type Conjunction_Condition, type Disjunction_Condition, type Mana_Cost, type Predicate_Condition, type Prop, type Query, type Substring_Condition } from "../query";
-import { Comparison_Operator, Enode_Type, Prop_Value_Type, type Enode, type Enode_Comparison, type Enode_Even, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
+import { MULTI_VALUE_PROPS, PER_FACE_PROPS, PER_VERSION_PROPS, type Comparison_Condition, type Condition, type Conjunction_Condition, type Disjunction_Condition, type Mana_Cost, type Predicate_Condition, type Prop, type Query, type Range_Condition, type Substring_Condition } from "../query";
+import { Comparison_Operator, Enode_Type, Prop_Value_Type, type Enode, type Enode_Comparison, type Enode_Even, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Range, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
 const freeze = Object.freeze;
 
 type Partial_Enode_Result =
@@ -90,6 +90,8 @@ export class Enode_Constructor {
                 result = this.process_condition_predicate(condition, negate);
                 break;
             case 'range':
+                result = this.process_condition_range(condition, negate);
+                break;
             case 'subset':
                 // TODO: Process even, odd, range and subset.
                 unreachable(`TODO: ${condition.type}`);
@@ -309,16 +311,36 @@ export class Enode_Constructor {
         negate: boolean,
     ): Enode_Result {
         assert(condition.prop === 'cmc');
-
         // TODO: Index for cmc.
         const values = this.cards.get_all<number>(condition.prop) ?? unreachable();
-
         const node: Enode_Even = {
             type: Enode_Type.Even,
             values,
             negated: negate === (condition.type === 'even'),
         };
+        return { all: true, node };
+    }
 
+    private process_condition_range(
+        condition: Range_Condition,
+        negated: boolean,
+    ): Enode_Result {
+        assert(
+            condition.prop !== 'colors'
+            && condition.prop !== 'cost'
+            && condition.prop !== 'identity',
+        );
+        // TODO: Use indices.
+        const node: Enode_Range = {
+            type: Enode_Type.Range,
+            values: this.cards.get_all<any>(condition.prop) ?? unreachable(),
+            value_type: prop_to_value_type(condition.prop),
+            start: condition.start instanceof Date ? condition.start.getTime() : condition.start,
+            start_inc: condition.start_inc,
+            end: condition.end instanceof Date ? condition.end.getTime() : condition.end,
+            end_inc: condition.end_inc,
+            negated,
+        };
         return { all: true, node };
     }
 
@@ -327,26 +349,13 @@ export class Enode_Constructor {
         negate: boolean,
     ): Enode_Comparison {
         const values = this.cards.get_all<any>(condition.prop) ?? unreachable();
-        let value_type: Prop_Value_Type;
-
-        if (PER_VERSION_PROPS.includes(condition.prop)) {
-            value_type = Prop_Value_Type.Per_Version;
-        } else if (PER_FACE_PROPS.includes(condition.prop)) {
-            value_type = Prop_Value_Type.Per_Face;
-        } else if (MULTI_VALUE_PROPS.includes(condition.prop)) {
-            value_type = Prop_Value_Type.Multi;
-        } else {
-            value_type = Prop_Value_Type.Single;
-        }
-
         const condition_value =
             condition.value instanceof Date ? condition.value.getTime() : condition.value;
         const [operator, negated] = condition_type_to_comparison_operator(condition.type);
-
         return {
             type: Enode_Type.Comparison,
             values,
-            value_type,
+            value_type: prop_to_value_type(condition.prop),
             condition_value,
             operator,
             negated: negate !== negated,
@@ -514,5 +523,17 @@ function condition_type_to_comparison_operator(
             return [Comparison_Operator.LT, true];
         default:
             unreachable();
+    }
+}
+
+function prop_to_value_type(prop: Prop): Prop_Value_Type {
+    if (PER_VERSION_PROPS.includes(prop)) {
+        return Prop_Value_Type.Per_Version;
+    } else if (PER_FACE_PROPS.includes(prop)) {
+        return Prop_Value_Type.Per_Face;
+    } else if (MULTI_VALUE_PROPS.includes(prop)) {
+        return Prop_Value_Type.Multi;
+    } else {
+        return Prop_Value_Type.Single;
     }
 }
