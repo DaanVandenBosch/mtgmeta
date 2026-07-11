@@ -1,12 +1,9 @@
-import type { Comparison_Condition, Mana_Cost, Substring_Condition } from "../query";
+import type { Comparison_Condition, Mana_Cost } from "../query";
 
 export enum Comparison_Operator {
     EQ = 1,
-    NE = 2,
-    LT = 3,
-    GT = 4,
-    LE = 5,
-    GE = 6,
+    LT = 2,
+    LE = 3,
 }
 
 export enum Enode_Type {
@@ -41,36 +38,41 @@ export type Enode_Conjunction = {
 
 export type Enode_Comparison = {
     readonly type: Enode_Type.Comparison,
-    readonly condition: Comparison_Condition,
     readonly card_values: ReadonlyArray<unknown>,
     readonly values_are_arrays: boolean,
+    readonly condition_value: Comparison_Condition['value'],
     readonly operator: Comparison_Operator,
+    readonly negated: boolean,
 }
 
 export type Enode_Mana_Cost = {
     readonly type: Enode_Type.Mana_Cost,
-    readonly condition: Comparison_Condition & { value: Mana_Cost },
     readonly card_values: ReadonlyArray<Mana_Cost | ReadonlyArray<Mana_Cost | null>>,
     readonly per_face: boolean,
+    readonly condition_value: Mana_Cost,
     readonly operator: Comparison_Operator,
+    readonly negated: boolean,
 }
 
 export type Enode_Mana_Cost_Number = {
     readonly type: Enode_Type.Mana_Cost_Number,
-    readonly condition: Comparison_Condition & { value: number },
     readonly card_values: ReadonlyArray<Mana_Cost | ReadonlyArray<Mana_Cost | null>>,
     readonly per_face: boolean,
+    readonly condition_value: number,
     readonly operator: Comparison_Operator,
+    readonly negated: boolean,
 }
 
 export type Enode_Substring = {
     readonly type: Enode_Type.Substring,
-    readonly condition: Substring_Condition,
     readonly card_values: ReadonlyArray<string>,
+    readonly condition_value: string,
+    readonly negated: boolean,
 }
 
 export type Enode_Substring_Per_face = {
     readonly type: Enode_Type.Substring_Per_face,
-    readonly condition: Substring_Condition,
     readonly card_values: ReadonlyArray<ReadonlyArray<string>>,
+    readonly condition_value: string,
+    readonly negated: boolean,
 }

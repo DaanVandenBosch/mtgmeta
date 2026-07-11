@@ -125,13 +125,13 @@ export class Enode_Executor {
         versions: Uint_Set,
     ): void {
         const value_or_values = node.card_values[card_idx] as any;
-        const condition_value = node.condition.value;
+        const condition_value = node.condition_value;
 
         if (node.values_are_arrays) {
             const values = value_or_values as ReadonlyArray<any>;
             // We return true as soon as a value is found for which the comparison function returns
             // true, except when the condition is of type "ne".
-            const sentinel = node.operator !== Comparison_Operator.NE;
+            const sentinel = !(node.operator === Comparison_Operator.EQ && node.negated);
 
             for (const value of values) {
                 // Ignore non-existent values.
@@ -145,24 +145,18 @@ export class Enode_Executor {
                     case Comparison_Operator.EQ:
                         result = value === condition_value;
                         break;
-                    case Comparison_Operator.NE:
-                        result = value !== condition_value;
-                        break;
                     case Comparison_Operator.LT:
                         result = value < condition_value;
-                        break;
-                    case Comparison_Operator.GT:
-                        result = value > condition_value;
                         break;
                     case Comparison_Operator.LE:
                         result = value <= condition_value;
                         break;
-                    case Comparison_Operator.GE:
-                        result = value >= condition_value;
-                        break;
                     default:
                         unreachable();
                 }
+
+                // Invert result when negated.
+                result = result !== node.negated;
 
                 if (result === sentinel) {
                     if (!sentinel) {
@@ -184,26 +178,18 @@ export class Enode_Executor {
                 case Comparison_Operator.EQ:
                     result = value === condition_value;
                     break;
-                case Comparison_Operator.NE:
-                    result = value !== condition_value;
-                    break;
                 case Comparison_Operator.LT:
                     result = value < condition_value;
                     break;
-                case Comparison_Operator.GT:
-                    result = value > condition_value;
-                    break;
                 case Comparison_Operator.LE:
                     result = value <= condition_value;
-                    break;
-                case Comparison_Operator.GE:
-                    result = value >= condition_value;
                     break;
                 default:
                     unreachable();
             }
 
-            if (!result) {
+            // Clear set when result is false, invert result when negated.
+            if (result === node.negated) {
                 versions.clear();
             }
         }
@@ -215,14 +201,14 @@ export class Enode_Executor {
         card_idx: number,
         versions: Uint_Set,
     ): void {
-        const condition_value = node.condition.value;
+        const condition_value = node.condition_value;
         const value_or_values = node.card_values[card_idx];
 
         if (node.per_face) {
             const values = value_or_values as ReadonlyArray<Mana_Cost | null>;
             // We return true as soon as a value is found for which the comparison function returns
             // true, except when the condition is of type "ne".
-            const sentinel = node.operator !== Comparison_Operator.NE;
+            const sentinel = !(node.operator === Comparison_Operator.EQ && node.negated);
 
             for (const value of values) {
                 // Ignore non-existent values.
@@ -234,22 +220,17 @@ export class Enode_Executor {
 
                 switch (node.operator) {
                     case Comparison_Operator.EQ:
-                        result = mana_cost_eq(value, condition_value, logger);
-                        break;
-                    case Comparison_Operator.NE:
-                        result = !mana_cost_eq(value, condition_value, logger);
+                        result = mana_cost_eq(value, condition_value, logger) !== node.negated;
                         break;
                     case Comparison_Operator.LT:
-                        result = mana_cost_is_super_set(condition_value, value, true, logger);
-                        break;
-                    case Comparison_Operator.GT:
-                        result = mana_cost_is_super_set(value, condition_value, true, logger);
+                        result = node.negated
+                            ? mana_cost_is_super_set(value, condition_value, false, logger)
+                            : mana_cost_is_super_set(condition_value, value, true, logger);
                         break;
                     case Comparison_Operator.LE:
-                        result = mana_cost_is_super_set(condition_value, value, false, logger);
-                        break;
-                    case Comparison_Operator.GE:
-                        result = mana_cost_is_super_set(value, condition_value, false, logger);
+                        result = node.negated
+                            ? mana_cost_is_super_set(value, condition_value, true, logger)
+                            : mana_cost_is_super_set(condition_value, value, false, logger);
                         break;
                     default:
                         unreachable();
@@ -273,22 +254,17 @@ export class Enode_Executor {
 
             switch (node.operator) {
                 case Comparison_Operator.EQ:
-                    result = mana_cost_eq(value, condition_value, logger);
-                    break;
-                case Comparison_Operator.NE:
-                    result = !mana_cost_eq(value, condition_value, logger);
+                    result = mana_cost_eq(value, condition_value, logger) !== node.negated;
                     break;
                 case Comparison_Operator.LT:
-                    result = mana_cost_is_super_set(condition_value, value, true, logger);
-                    break;
-                case Comparison_Operator.GT:
-                    result = mana_cost_is_super_set(value, condition_value, true, logger);
+                    result = node.negated
+                        ? mana_cost_is_super_set(value, condition_value, false, logger)
+                        : mana_cost_is_super_set(condition_value, value, true, logger);
                     break;
                 case Comparison_Operator.LE:
-                    result = mana_cost_is_super_set(condition_value, value, false, logger);
-                    break;
-                case Comparison_Operator.GE:
-                    result = mana_cost_is_super_set(value, condition_value, false, logger);
+                    result = node.negated
+                        ? mana_cost_is_super_set(value, condition_value, true, logger)
+                        : mana_cost_is_super_set(condition_value, value, false, logger);
                     break;
                 default:
                     unreachable();
@@ -305,14 +281,14 @@ export class Enode_Executor {
         card_idx: number,
         versions: Uint_Set,
     ): void {
-        const condition_value: number = node.condition.value;
+        const condition_value = node.condition_value;
         const value_or_values = node.card_values[card_idx];
 
         if (node.per_face) {
             const values = value_or_values as ReadonlyArray<Mana_Cost | null>;
             // We return true as soon as a value is found for which the comparison function returns
             // true, except when the condition is of type "ne".
-            const sentinel = node.operator !== Comparison_Operator.NE;
+            const sentinel = !(node.operator === Comparison_Operator.EQ && node.negated);
 
             for (const value of values) {
                 // Ignore non-existent values.
@@ -327,24 +303,18 @@ export class Enode_Executor {
                     case Comparison_Operator.EQ:
                         result = len === condition_value;
                         break;
-                    case Comparison_Operator.NE:
-                        result = len !== condition_value;
-                        break;
                     case Comparison_Operator.LT:
                         result = len < condition_value;
-                        break;
-                    case Comparison_Operator.GT:
-                        result = len > condition_value;
                         break;
                     case Comparison_Operator.LE:
                         result = len <= condition_value;
                         break;
-                    case Comparison_Operator.GE:
-                        result = len >= condition_value;
-                        break;
                     default:
                         unreachable();
                 }
+
+                // Invert result when negated.
+                result = result !== node.negated;
 
                 if (result === sentinel) {
                     if (!sentinel) {
@@ -366,26 +336,18 @@ export class Enode_Executor {
                 case Comparison_Operator.EQ:
                     result = len === condition_value;
                     break;
-                case Comparison_Operator.NE:
-                    result = len !== condition_value;
-                    break;
                 case Comparison_Operator.LT:
                     result = len < condition_value;
                     break;
-                case Comparison_Operator.GT:
-                    result = len > condition_value;
-                    break;
                 case Comparison_Operator.LE:
                     result = len <= condition_value;
-                    break;
-                case Comparison_Operator.GE:
-                    result = len >= condition_value;
                     break;
                 default:
                     unreachable();
             }
 
-            if (!result) {
+            // Clear set when result is false, invert result when negated.
+            if (result === node.negated) {
                 versions.clear();
             }
         }
@@ -396,7 +358,7 @@ export class Enode_Executor {
         card_idx: number,
         versions: Uint_Set,
     ): void {
-        if (!node.card_values[card_idx].includes(node.condition.value)) {
+        if (node.card_values[card_idx].includes(node.condition_value) === node.negated) {
             versions.clear();
         }
     }
@@ -406,10 +368,11 @@ export class Enode_Executor {
         card_idx: number,
         versions: Uint_Set,
     ): void {
-        const condition_value = node.condition.value;
+        const condition_value = node.condition_value;
+        const negated = node.negated;
 
         for (const value of node.card_values[card_idx]) {
-            if (value.includes(condition_value)) {
+            if (value.includes(condition_value) !== negated) {
                 return;
             }
         }

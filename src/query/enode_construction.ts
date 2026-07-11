@@ -48,10 +48,10 @@ export class Enode_Constructor {
     }
 
     construct_execution_tree(query: Query, logger: Logger): Enode_Result {
-        return this.process_condition(query.condition, logger);
+        return this.process_condition(query.condition, false, logger);
     }
 
-    private process_condition(condition: Condition, logger: Logger): Enode_Result {
+    private process_condition(condition: Condition, negate: boolean, logger: Logger): Enode_Result {
         logger.group(condition.type, condition);
         let result: Enode_Result;
 
@@ -63,16 +63,17 @@ export class Enode_Constructor {
                 result = NONE_RESULT;
                 break;
             case 'or':
-                result = this.process_condition_disjunction(condition, logger);
+                result = this.process_condition_disjunction(condition, negate, logger);
                 break;
             case 'and':
-                result = this.process_condition_conjunction(condition, logger);
+                result = this.process_condition_conjunction(condition, negate, logger);
                 break;
             case 'not':
-                // TODO: Process negation.
-                unreachable(`TODO: ${condition.type}`);
+                // Just negate the nested condition.
+                result = this.process_condition(condition.condition, !negate, logger);
+                break;
             case 'substring':
-                result = this.process_condition_substring(condition);
+                result = this.process_condition_substring(condition, negate);
                 break;
             case 'even':
             case 'odd':
@@ -81,7 +82,7 @@ export class Enode_Constructor {
                 // TODO: Process even, odd, range and subset.
                 unreachable(`TODO: ${condition.type}`);
             default:
-                result = this.process_condition_comparison(condition);
+                result = this.process_condition_comparison(condition, negate);
                 break;
         }
 
@@ -92,6 +93,7 @@ export class Enode_Constructor {
 
     private process_condition_disjunction(
         condition: Disjunction_Condition,
+        negate: boolean,
         logger: Logger,
     ): Enode_Result {
         const cards_len = this.cards.length ?? unreachable();
@@ -99,7 +101,7 @@ export class Enode_Constructor {
         const children: Enode[] = [];
 
         for (const cond of condition.conditions) {
-            const child_result = this.process_condition(cond, logger);
+            const child_result = this.process_condition(cond, negate, logger);
 
             if (child_result.all) {
                 if (child_result.node) {
@@ -139,6 +141,8 @@ export class Enode_Constructor {
             node = null;
         } else if (children.length === 1) {
             node = children[0];
+        } else if (negate) {
+            node = { type: Enode_Type.Conjunction, children };
         } else {
             node = { type: Enode_Type.Disjunction, children };
         }
@@ -148,13 +152,14 @@ export class Enode_Constructor {
 
     private process_condition_conjunction(
         condition: Conjunction_Condition,
+        negate: boolean,
         logger: Logger,
     ): Enode_Result {
         let result: Partial_Enode_Result = ALL_RESULT;
         const children: Enode[] = [];
 
         for (const cond of condition.conditions) {
-            const child_result = this.process_condition(cond, logger);
+            const child_result = this.process_condition(cond, negate, logger);
 
             if (result.all) {
                 result = child_result;
@@ -187,6 +192,8 @@ export class Enode_Constructor {
             node = null;
         } else if (children.length === 1) {
             node = children[0];
+        } else if (negate) {
+            node = { type: Enode_Type.Disjunction, children };
         } else {
             node = { type: Enode_Type.Conjunction, children };
         }
@@ -196,13 +203,14 @@ export class Enode_Constructor {
 
     private process_condition_comparison(
         condition: Comparison_Condition,
+        negate: boolean,
     ): Enode_Result {
         switch (condition.prop) {
             case 'colors':
             case 'cost':
             case 'identity': {
                 // TODO: Indices for colors, cost and identity.
-                return { all: true, node: this.create_enode_mana_cost(condition) };
+                return { all: true, node: this.create_enode_mana_cost(condition, negate) };
             }
             case 'rarity':
             case 'released_at': {
@@ -212,12 +220,20 @@ export class Enode_Constructor {
             default: {
                 // Comparison condition.
                 // TODO: Indices for comparisons.
-                return { all: true, node: this.create_enode_comparison(condition) };
+                return { all: true, node: this.create_enode_comparison(condition, negate) };
             }
         }
     }
 
-    private process_condition_substring(condition: Substring_Condition): Enode_Result {
+    private process_condition_substring(
+        condition: Substring_Condition,
+        negate: boolean,
+    ): Enode_Result {
+        // TODO: Optimize negated substring condition.
+        if (negate) {
+            return { all: true, node: this.create_enode_substring(condition, negate) };
+        }
+
         // All string properties contain the empty string.
         if (condition.value.length === 0) {
             return ALL_RESULT;
@@ -229,7 +245,7 @@ export class Enode_Constructor {
 
         // Condition string is shorter than the index' n-gram size, need to execute over all cards.
         if (candidates === null) {
-            return { all: true, node: this.create_enode_substring(condition) };
+            return { all: true, node: this.create_enode_substring(condition, negate) };
         }
 
         // No card has this combination of n-grams.
@@ -246,11 +262,14 @@ export class Enode_Constructor {
         return {
             all: false,
             cards: candidates,
-            node: this.create_enode_substring(condition),
+            node: this.create_enode_substring(condition, negate),
         };
     }
 
-    private create_enode_comparison(condition: Comparison_Condition): Enode_Comparison {
+    private create_enode_comparison(
+        condition: Comparison_Condition,
+        negate: boolean,
+    ): Enode_Comparison {
         assert(
             !PER_VERSION_PROPS.includes(condition.prop),
             () => `TODO: Per-version properties not yet supported (${condition.prop}).`,
@@ -259,26 +278,28 @@ export class Enode_Constructor {
         const card_values =
             this.cards.get_all<Comparison_Condition['value']>(condition.prop)
             ?? unreachable();
-        const operator = condition_type_to_comparison_operator(condition.type);
+        const [operator, negated] = condition_type_to_comparison_operator(condition.type);
 
         return {
             type: Enode_Type.Comparison,
-            condition,
             card_values,
             values_are_arrays:
                 PER_FACE_PROPS.includes(condition.prop) || condition.prop === 'formats',
+            condition_value: condition.value,
             operator,
+            negated: negate !== negated,
         };
     }
 
     private create_enode_mana_cost(
         condition: Comparison_Condition,
+        negate: boolean,
     ): Enode_Mana_Cost | Enode_Mana_Cost_Number {
         const card_values =
             this.cards.get_all<Mana_Cost | ReadonlyArray<Mana_Cost | null>>(condition.prop)
             ?? unreachable();
         const per_face = PER_FACE_PROPS.includes(condition.prop);
-        const operator = condition_type_to_comparison_operator(condition.type);
+        const [operator, negated] = condition_type_to_comparison_operator(condition.type);
 
         let node: Enode_Mana_Cost | Enode_Mana_Cost_Number;
 
@@ -287,10 +308,11 @@ export class Enode_Constructor {
 
             node = {
                 type: Enode_Type.Mana_Cost_Number,
-                condition: condition as Comparison_Condition & { value: number },
                 card_values,
                 per_face,
+                condition_value: condition.value as number,
                 operator,
+                negated: negate !== negated,
             }
         } else {
             assert(
@@ -301,10 +323,11 @@ export class Enode_Constructor {
 
             node = {
                 type: Enode_Type.Mana_Cost,
-                condition: condition as Comparison_Condition & { value: Mana_Cost },
                 card_values,
                 per_face,
+                condition_value: condition.value as Mana_Cost,
                 operator,
+                negated: negate !== negated,
             }
         }
 
@@ -313,6 +336,7 @@ export class Enode_Constructor {
 
     private create_enode_substring(
         condition: Substring_Condition,
+        negated: boolean,
     ): Enode_Substring | Enode_Substring_Per_face {
         assert(!PER_VERSION_PROPS.includes(condition.prop));
 
@@ -324,14 +348,16 @@ export class Enode_Constructor {
         if (per_face) {
             node = {
                 type: Enode_Type.Substring_Per_face,
-                condition,
                 card_values: card_values as ReadonlyArray<ReadonlyArray<string>>,
+                condition_value: condition.value,
+                negated,
             };
         } else {
             node = {
                 type: Enode_Type.Substring,
-                condition,
                 card_values: card_values as ReadonlyArray<string>,
+                condition_value: condition.value,
+                negated,
             };
         }
 
@@ -410,20 +436,20 @@ class Substring_Index {
 
 function condition_type_to_comparison_operator(
     type: Comparison_Condition['type']
-): Comparison_Operator {
+): [Comparison_Operator, boolean] {
     switch (type) {
         case 'eq':
-            return Comparison_Operator.EQ;
+            return [Comparison_Operator.EQ, false];
         case 'ne':
-            return Comparison_Operator.NE;
+            return [Comparison_Operator.EQ, true];
         case 'lt':
-            return Comparison_Operator.LT;
+            return [Comparison_Operator.LT, false];
         case 'gt':
-            return Comparison_Operator.GT;
+            return [Comparison_Operator.LE, true];
         case 'le':
-            return Comparison_Operator.LE;
+            return [Comparison_Operator.LE, false];
         case 'ge':
-            return Comparison_Operator.GE;
+            return [Comparison_Operator.LT, true];
         default:
             unreachable();
     }
