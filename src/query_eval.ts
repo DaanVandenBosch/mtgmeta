@@ -469,28 +469,28 @@ function get_compare_helper(
         case 'released_at': {
             switch (condition.type) {
                 case 'eq':
-                    return (value: Date, cond: Comparison_Condition) => {
-                        return value.getTime() === (cond.value as Date).getTime();
+                    return (value: number, cond: Comparison_Condition) => {
+                        return value === (cond.value as Date).getTime();
                     }
                 case 'ne':
-                    return (value: Date, cond: Comparison_Condition) => {
-                        return value.getTime() !== (cond.value as Date).getTime();
+                    return (value: number, cond: Comparison_Condition) => {
+                        return value !== (cond.value as Date).getTime();
                     }
                 case 'gt':
-                    return (value: Date, cond: Comparison_Condition) => {
-                        return value > (cond.value as Date);
+                    return (value: number, cond: Comparison_Condition) => {
+                        return value > (cond.value as Date).getTime();
                     }
                 case 'lt':
-                    return (value: Date, cond: Comparison_Condition) => {
-                        return value < (cond.value as Date);
+                    return (value: number, cond: Comparison_Condition) => {
+                        return value < (cond.value as Date).getTime();
                     }
                 case 'ge':
-                    return (value: Date, cond: Comparison_Condition) => {
-                        return value >= (cond.value as Date);
+                    return (value: number, cond: Comparison_Condition) => {
+                        return value >= (cond.value as Date).getTime();
                     }
                 case 'le':
-                    return (value: Date, cond: Comparison_Condition) => {
-                        return value <= (cond.value as Date);
+                    return (value: number, cond: Comparison_Condition) => {
+                        return value <= (cond.value as Date).getTime();
                     }
             }
         }

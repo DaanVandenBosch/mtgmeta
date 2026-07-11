@@ -224,9 +224,8 @@ export class Enode_Constructor {
                 // TODO: Indices for colors, cost and identity.
                 return { all: true, node: this.create_enode_mana_cost(condition, negate) };
             }
-            case 'rarity':
-            case 'released_at': {
-                // TODO: rarity and released_at.
+            case 'rarity': {
+                // TODO: rarity.
                 unreachable(`TODO: ${condition.prop}`);
             }
             default: {
@@ -305,17 +304,18 @@ export class Enode_Constructor {
             () => `TODO: Per-version properties not yet supported (${condition.prop}).`,
         );
 
-        const card_values =
-            this.cards.get_all<Comparison_Condition['value']>(condition.prop)
-            ?? unreachable();
+        const card_values = this.cards.get_all<any>(condition.prop) ?? unreachable();
+        const values_are_arrays =
+            PER_FACE_PROPS.includes(condition.prop) || condition.prop === 'formats';
+        const condition_value =
+            condition.value instanceof Date ? condition.value.getTime() : condition.value;
         const [operator, negated] = condition_type_to_comparison_operator(condition.type);
 
         return {
             type: Enode_Type.Comparison,
             card_values,
-            values_are_arrays:
-                PER_FACE_PROPS.includes(condition.prop) || condition.prop === 'formats',
-            condition_value: condition.value,
+            values_are_arrays,
+            condition_value,
             operator,
             negated: negate !== negated,
         };

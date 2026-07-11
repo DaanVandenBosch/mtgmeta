@@ -350,7 +350,7 @@ export class Cards {
                     case 'released_at': {
                         for (const values of data) {
                             for (let i = 0, len = values.length; i < len; i++) {
-                                values[i] = new Date(values[i] + 'T00:00:00Z');
+                                values[i] = Date.parse(values[i] + 'T00:00:00Z');
                             }
                         }
 

@@ -1,4 +1,4 @@
-import type { Comparison_Condition, Mana_Cost } from "../query";
+import type { Mana_Cost } from "../query";
 
 export enum Comparison_Operator {
     EQ = 1,
@@ -42,7 +42,7 @@ export type Enode_Comparison = {
     readonly type: Enode_Type.Comparison,
     readonly card_values: ReadonlyArray<unknown>,
     readonly values_are_arrays: boolean,
-    readonly condition_value: Comparison_Condition['value'],
+    readonly condition_value: number | boolean | string | Mana_Cost
     readonly operator: Comparison_Operator,
     readonly negated: boolean,
 }
