@@ -37,10 +37,10 @@ export class Enode_Constructor {
 
         switch (condition.type) {
             case 'true':
-                result = ALL_RESULT;
+                result = negate ? NONE_RESULT : ALL_RESULT;
                 break;
             case 'false':
-                result = NONE_RESULT;
+                result = negate ? ALL_RESULT : NONE_RESULT;
                 break;
             case 'or':
                 result = this.process_condition_disjunction(condition, negate, logger);
@@ -235,14 +235,14 @@ export class Enode_Constructor {
         condition: Substring_Condition,
         negate: boolean,
     ): Enode_Result {
+        // All string properties contain the empty string.
+        if (condition.value.length === 0) {
+            return negate ? NONE_RESULT : ALL_RESULT;
+        }
+
         // TODO: Optimize negated substring condition.
         if (negate) {
             return { all: true, node: this.create_enode_substring(condition, negate) };
-        }
-
-        // All string properties contain the empty string.
-        if (condition.value.length === 0) {
-            return ALL_RESULT;
         }
 
         const { candidates, exact } = this.indices.get_candidates(condition.prop, condition.value);
@@ -316,6 +316,7 @@ export class Enode_Constructor {
         const subset = this.subset_store.get(condition.id);
 
         if (subset === null) {
+            // TODO: Report errors to user.
             logger.error(`Subset condition references nonexistent ID ${condition.id}.`);
             return negate ? ALL_RESULT : NONE_RESULT;
         }
