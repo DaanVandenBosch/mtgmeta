@@ -35,6 +35,9 @@ export class Enode_Constructor {
         logger.group(condition.type, condition);
         let result: Enode_Result;
 
+        // TODO: When we add more indices for per-version properties, ensure we always return an
+        //       enode tree because we need to process the results to find the correct version of
+        //       each card.
         switch (condition.type) {
             case 'true':
                 result = negate ? NONE_RESULT : ALL_RESULT;
