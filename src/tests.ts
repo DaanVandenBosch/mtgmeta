@@ -21,119 +21,416 @@ import { query_hash } from "./query_hash";
 import { Query_Engine } from "./query/engine";
 import { Indices } from "./query/indices";
 
-export async function run_test_suite(cards: Cards) {
+type Query_Test_Defininition = {
+    desc: string,
+    query: string,
+    expected: Array<string>,
+    subsets?: { [id: string]: string },
+    bench?: boolean,
+};
+
+export const query_test_definitions: Array<Query_Test_Defininition> = [
+    {
+        desc: 'name, ignore punctuation',
+        query: 't.a/\\,m\'":i;yoc',
+        expected: ['Tamiyo, Collector of Tales', 'Tamiyo, Compleated Sage'],
+    },
+    {
+        desc: 'name, match split cards',
+        query: "'FIRE //'",
+        expected: ['Fire // Ice'],
+    },
+    {
+        desc: 'name, match split cards inexact',
+        query: "fire//ice",
+        expected: ['Fire // Ice', 'Ghostfire Slice', 'Iceman and Firestar', 'Sword of Fire and Ice'],
+    },
+    {
+        desc: 'name, match split cards with backslash',
+        query: "fire\\ice",
+        expected: ['Fire // Ice', 'Ghostfire Slice', 'Iceman and Firestar', 'Sword of Fire and Ice'],
+    },
+    {
+        desc: "name, match double-faced cards",
+        query: '"pathway // bould"',
+        expected: ['Branchloft Pathway // Boulderloft Pathway'],
+    },
+    {
+        desc: 'cmc=',
+        query: 'cmc=0 t:sorcery vision',
+        expected: ['Ancestral Vision'],
+    },
+    {
+        // Same as =
+        desc: 'cmc:',
+        query: 'cmc:16',
+        expected: ['Draco'],
+    },
+    {
+        desc: 'cmc>',
+        query: 'cmc>20',
+        expected: ['Gleemax'],
+    },
+    {
+        desc: 'cmc<=',
+        query: 'cmc<=0 cinder',
+        expected: ['Cinder Barrens', 'Cinder Glade', 'Cinder Marsh'],
+    },
+    {
+        desc: 'mana=',
+        query: 'm=rgwu',
+        expected: ['Aragorn, the Uniter', 'Avatar Aang // Aang, Master of Elements', 'Elusen, the Giving', 'Ink-Treader Nephilim', 'Kynaios and Tiro of Meletis', 'Omnath, Locus of Creation', 'The Fantastic Four'],
+    },
+    {
+        desc: 'mana!=',
+        query: 'mana!=2wr agrus',
+        expected: ['Agrus Kos, Eternal Soldier', 'Agrus Kos, Wojek Veteran'],
+    },
+    {
+        desc: 'mana>',
+        query: 'm>rgw cmc<=4 t:elf',
+        expected: ['Fleetfoot Dancer', 'Obuun, Mul Daya Ancestor', 'Rocco, Cabaretti Caterer', 'Shalai and Hallar'],
+    },
+    {
+        desc: 'mana<',
+        query: 'm<rgw class',
+        expected: ['Barbarian Class', 'Bard Class', 'Cleric Class', 'Fighter Class', 'Paladin Class'],
+    },
+    {
+        desc: 'mana>=',
+        query: 'mana>=rgw charm',
+        expected: ['Cabaretti Charm', 'Naya Charm', "Rith's Charm"],
+    },
+    {
+        // Same as >=
+        desc: 'mana:',
+        query: 'mana:rgw charm',
+        expected: ['Cabaretti Charm', 'Naya Charm', "Rith's Charm"],
+    },
+    {
+        desc: 'mana<=',
+        query: 'mana<=rgw charm v',
+        expected: ['Fever Charm', 'Ivory Charm', 'Vitality Charm'],
+    },
+    {
+        desc: 'mana {C}',
+        query: 'm>{c}cc',
+        expected: ['Echoes of Eternity', 'Rise of the Eldrazi'],
+    },
+    {
+        desc: 'mana generic',
+        query: 'm>={7}{4}2 m<15',
+        expected: ['Emrakul, the Promised End'],
+    },
+    {
+        desc: 'mana generic X',
+        query: 'm>XXX',
+        expected: ['Crackle with Power', 'Doppelgang'],
+    },
+    {
+        desc: 'mana hybrid',
+        query: 'm={R/U}{R/U}{R/U}',
+        expected: ['Crag Puca'],
+    },
+    {
+        desc: 'mana monocolored hybrid',
+        query: 'm>={2/r}{2/w}{2/b}',
+        expected: ['Defibrillating Current', 'Reaper King', 'Reigning Victor'],
+    },
+    {
+        desc: 'mana colorless hybrid',
+        query: 'm>={C/B}',
+        expected: ['Ulalek, Fused Atrocity'],
+    },
+    {
+        desc: 'mana phyrexian',
+        query: 'm={u/p}',
+        expected: ['Gitaxian Probe', 'Mental Misstep'],
+    },
+    {
+        desc: 'mana phyrexian hybrid',
+        query: 'm:{w/G/P}',
+        expected: ['Ajani, Sleeper Agent'],
+    },
+    {
+        desc: 'mana<0',
+        query: 'm<0 ever',
+        expected: ['Blazemire Verge', 'Bleachbone Verge', 'Everglades', 'Evermind', 'Gloomlake Verge', 'Needleverge Pathway // Pillarverge Pathway', 'Riverpyre Verge', 'Thornspire Verge'],
+    },
+    {
+        // This is a weird one, zero-cost and no-cost are less than any nonzero cost.
+        desc: 'mana<{R}',
+        query: 'm<{R} t:instant ve',
+        expected: ['Evermind', 'Intervention Pact'],
+    },
+    {
+        desc: 'mana with {0} and other symbols',
+        query: 'm:{0}{r}{r}{r} ball',
+        expected: ['Ball Lightning', 'Jaya Ballard'],
+    },
+    {
+        desc: 'rarity=',
+        query: 'rarity=c m>=ggg',
+        expected: ['Kindercatch', 'Nyxborn Colossus'],
+    },
+    {
+        // Same as =
+        desc: 'rarity:',
+        query: 'r:c m>=ggg',
+        expected: ['Kindercatch', 'Nyxborn Colossus'],
+    },
+    {
+        desc: 'rarity<',
+        query: 'RARity<UNcommon m>=ggg',
+        expected: ['Kindercatch', 'Nyxborn Colossus'],
+    },
+    {
+        desc: 'rarity!=',
+        query: 'r!=Special m:gggg GIANT',
+        expected: ['Craw Giant'],
+    },
+    {
+        desc: 'oracle:',
+        query: 'o:rampage t:giant',
+        expected: ['Craw Giant', 'Frost Giant'],
+    },
+    {
+        // Same as :
+        desc: 'oracle=',
+        query: 'oracle="it deals 6 damage to each creature"',
+        expected: ['Bloodfire Colossus', 'Tornado Elemental', 'Lord of Shatterskull Pass', 'Cathedral Membrane', 'Lavabrink Floodgates'],
+    },
+    {
+        // Reminder text shouldn't match.
+        desc: 'oracle reminder text',
+        query: 'oracle:"to mill a card,"',
+        expected: [],
+    },
+    {
+        desc: 'fulloracle:',
+        query: 'fulloracle:"to mill a card," t:instant',
+        expected: ['Dig Up the Body', 'Wasteful Harvest'],
+    },
+    {
+        desc: 'format:',
+        query: 'f:premodern termina',
+        expected: ['Terminal Moraine', 'Terminate', 'Aphetto Exterminator'],
+    },
+    {
+        // Same as :
+        desc: 'format=',
+        query: 'format=premodern suppress',
+        expected: ['Brutal Suppression', 'Suppress'],
+    },
+    {
+        desc: 'color=',
+        query: 'color=gr gut',
+        expected: ['Guttural Response', 'Raggadragga, Goreguts Boss'],
+    },
+    {
+        // Same as >=
+        desc: 'color:',
+        query: 'c:gr scrapper',
+        expected: ['Scuzzback Scrapper'],
+    },
+    {
+        desc: 'color: with number',
+        query: 'color:4 year<2010',
+        expected: ['Dune-Brood Nephilim', 'Glint-Eye Nephilim', 'Ink-Treader Nephilim', 'Witch-Maw Nephilim', 'Yore-Tiller Nephilim'],
+    },
+    {
+        desc: 'color< with number',
+        query: 'c<2 abundant',
+        expected: ['Abundant Countryside', 'Abundant Growth', 'Abundant Harvest', 'Abundant Maw'],
+    },
+    {
+        desc: 'identity=',
+        query: 'identity=gr glade',
+        expected: ['Cinder Glade'],
+    },
+    {
+        // Same as <=
+        desc: 'identity:',
+        query: 'id:gr scrapper',
+        expected: ['Elvish Scrapper', 'Gruul Scrapper', 'Khenra Scrapper', 'Narstad Scrapper', 'Scrapper Champion', 'Scuzzback Scrapper', 'Slagdrill Scrapper', 'Tuktuk Scrapper'],
+    },
+    {
+        desc: 'identity: with number',
+        query: 'id:4 year<2010',
+        expected: ['Dune-Brood Nephilim', 'Glint-Eye Nephilim', 'Ink-Treader Nephilim', 'Witch-Maw Nephilim', 'Yore-Tiller Nephilim'],
+    },
+    {
+        desc: 'identity> with number',
+        query: 'id>4 year<2000',
+        expected: ['Jack-in-the-Mox', 'Naked Singularity', 'Reality Twist', 'Sliver Queen'],
+    },
+    {
+        desc: 'quotes "',
+        query: '"boros guild"',
+        expected: ['Boros Guildgate', 'Boros Guildmage'],
+    },
+    {
+        desc: "quotes '",
+        query: "o:'one item'",
+        expected: ['Goblin Game', "Ladies' Knight"],
+    },
+    {
+        desc: 'ignore single quote',
+        query: "o:tamiyo's cmc>4",
+        expected: ['Tamiyo, Compleated Sage'],
+    },
+    {
+        desc: 'set',
+        query: 's:war ajani',
+        expected: ["Ajani's Pridemate", 'Ajani, the Greathearted'],
+    },
+    {
+        desc: 'edition',
+        query: 'e:RAV drake',
+        expected: ['Drake Familiar', 'Snapping Drake', 'Tattered Drake'],
+    },
+    {
+        desc: 'negation',
+        query: '-t:land forest',
+        expected: ['Deep Forest Hermit', 'Forest Bear', 'Great Forest Druid', 'Hei Bai, Forest Guardian', 'Jaheira, Friend of the Forest'],
+    },
+    {
+        // SF seems to interpret this as "name does not contain the empty string".
+        desc: 'empty negation',
+        query: '-',
+        expected: [],
+    },
+    {
+        // SF seems to interpret this as "name does not contain the empty string".
+        desc: 'effectively empty negation',
+        query: '-.',
+        expected: [],
+    },
+    {
+        // Negation means "true if no version of this card matches the nested condition".
+        desc: 'negate condition on version-specific property',
+        query: '-f:premodern carpet',
+        expected: ["Al-abara's Carpet"],
+    },
+    {
+        desc: 'year=',
+        query: 'year=2011 alloy',
+        expected: ['Alloy Myr'],
+    },
+    {
+        // Same as =
+        desc: 'year:',
+        query: 'year:1999 about',
+        expected: ['About Face'],
+    },
+    {
+        desc: 'year<=',
+        query: 'year<=2011 alloy',
+        expected: ['Alloy Golem', 'Alloy Myr'],
+    },
+    {
+        desc: 'year, conflicting',
+        query: 'year>=2020 year<=2011 alloy',
+        expected: [],
+    },
+    {
+        desc: 'date:',
+        query: 'date:1993-08-05 rec',
+        expected: ['Ancestral Recall', 'Resurrection'],
+    },
+    {
+        desc: 'date>= and date<=',
+        query: 'grave date<=2003-08 date>=2003-04',
+        expected: ['Call to the Grave', 'Gravedigger', 'Grave Pact', 'Reaping the Graves'],
+    },
+    {
+        desc: 'reprint',
+        query: 'not:reprint set:m12 t:wizard',
+        expected: ['Alabaster Mage', 'Azure Mage', "Jace's Archivist", 'Lord of the Unreal', 'Merfolk Mesmerist', 'Onyx Mage'],
+    },
+    {
+        desc: 'disjunction',
+        query: 'animate t:instant or abundance t:enchantment',
+        expected: ['Abundance', 'Animate Land', 'Leyline of Abundance', 'Overabundance', 'Trace of Abundance'],
+    },
+    {
+        desc: 'disjunction',
+        query: '( mind OR power ) drain',
+        expected: ['Drain Power', 'Mind Drain'],
+    },
+    {
+        desc: 'parens',
+        query: 'mana for (t:creature or t:artifact)',
+        expected: ['Manaforce Mace', 'Manaforge Cinder', 'Manaform Hellkite'],
+    },
+    {
+        desc: 'nested parens',
+        query: 'mana for ((t:creature t:dragon) or t:artifact)',
+        expected: ['Manaforce Mace', 'Manaform Hellkite'],
+    },
+    {
+        desc: 'empty parens',
+        query: 'draining or ()',
+        expected: ['Draining Whelk'],
+    },
+    {
+        desc: 'no space before opening paren',
+        query: 'mox(ruby)',
+        expected: [],
+    },
+    {
+        desc: 'too many opening parens',
+        query: '((mox) sapphire',
+        expected: [],
+    },
+    {
+        desc: 'too many closing parens',
+        query: '(mox) sapphire)',
+        expected: [],
+    },
+    {
+        desc: 'large query tree',
+        query: 'grave -t:ench -(stone or (t:land (cairn or lan)) or t:creature) -(t:instant or t:sorcery)',
+        expected: ['Elephant Graveyard', 'Graveyard Shovel', "Titan's Grave", 'Watery Grave'],
+    },
+    {
+        desc: 'even',
+        query: 'cmc:even belly',
+        expected: ['Blightbelly Rat', 'Fire-Belly Changeling', 'Lead-Belly Chimera'],
+    },
+    {
+        desc: 'odd',
+        query: 'cmc:odd belly',
+        expected: ['Lavabelly Sliver', 'Poisonbelly Ogre', 'Ravenous Rotbelly'],
+    },
+    {
+        desc: 'subset',
+        query: 'subset:Simple',
+        expected: ['Mana Matrix'],
+        subsets: { 'Simple': '"Mana Matrix"' },
+    },
+    {
+        desc: 'complex subset',
+        query: 'subset:Complex',
+        expected: ['Myr Matrix'],
+        subsets: { 'Complex': 'r:r matrix o:creature cmc>=5' },
+    },
+    {
+        desc: 'subset with spaces in name',
+        query: 'subset:"A long name"',
+        expected: ['Psychic Puppetry'],
+        subsets: { 'A long name': '"Psychic Puppetry"' },
+    },
+];
+
+export async function run_test_suite(cards: Cards, indices: Indices) {
     Console_Logger.time('run_test_suite');
     Console_Logger.time('run_test_suite_setup');
-
-    const indices = new Indices(cards);
 
     const tests: { name: string, execute: (logger: Logger) => void | Promise<void> }[] = [];
 
     function test(name: string, execute: (logger: Logger) => void | Promise<void>) {
         tests.push({ name, execute });
-    }
-
-    function test_query(
-        name: string,
-        query_string: string,
-        expected_matches: string[],
-        options: { subsets?: { [id: string]: string } } = {},
-    ) {
-        const MAX_MATCHES = 20;
-        const expected = new Set(expected_matches);
-        assert(expected.size <= MAX_MATCHES);
-
-        function test_query_helper(
-            method: string,
-            execute_query: (
-                subset_store: Subset_Store,
-                query: Query,
-                logger: Logger,
-                card_logger: (idx: number) => Logger,
-            ) => ReadonlyMap<number, number>,
-        ) {
-            test(`${name} [${method}] [${query_string}]`, async logger => {
-                const subset_store = new Subset_Store(logger);
-
-                if (options.subsets) {
-                    for (const [name, query] of Object.entries(options.subsets)) {
-                        const subset = subset_store.create(
-                            crypto.randomUUID(),
-                            name,
-                            parse_query(EMPTY_MAP, query),
-                        );
-                        assert(subset !== null);
-                    }
-                }
-
-                const query = simplify_query(
-                    subset_store.id_to_subset,
-                    parse_query(subset_store.name_to_subset, query_string),
-                );
-                const result = execute_query(
-                    subset_store,
-                    query,
-                    Nop_Logger,
-                    () => Nop_Logger,
-                );
-
-                const actual = new Set([...result.keys()].map(idx => cards.name(idx)));
-
-                if (!deep_eq(actual, expected)) {
-                    const missing_set = expected.difference(actual);
-                    const unexpected_set = actual.difference(expected);
-                    const log_set = new Set;
-
-                    for (const c of missing_set) {
-                        log_set.add(c);
-
-                        // Ensure we log at most 10 cards.
-                        if (log_set.size >= 10) {
-                            break;
-                        }
-                    }
-
-                    for (const c of unexpected_set) {
-                        log_set.add(c);
-
-                        // Ensure we log at most 10 cards.
-                        if (log_set.size >= 10) {
-                            break;
-                        }
-                    }
-
-                    execute_query(
-                        subset_store,
-                        query,
-                        logger,
-                        idx => (log_set.has(cards.name(idx)) ? logger : Nop_Logger),
-                    );
-
-                    const max_warn = unexpected_set.size > 5 ? ' (showing max. 5)' : '';
-
-                    throw Error(
-                        `Expected to get ${expected.size} matches, got ${actual.size}. Also expected: ${to_string(missing_set)}, didn't expect: ${to_string([...unexpected_set].slice(0, 5))}${max_warn}.`
-                    );
-                }
-            });
-        }
-
-        test_query_helper(
-            'eval',
-            (subset_store, query, _logger, card_logger) => find_cards_matching_query(
-                cards,
-                subset_store,
-                query,
-                card_logger,
-            ),
-        );
-
-        test_query_helper(
-            'engine',
-            (subset_store, query, logger, card_logger) =>
-                new Query_Engine(cards, indices, subset_store)
-                    .execute(logger, card_logger, query,),
-        );
     }
 
     test('pop_count_32', () => {
@@ -694,397 +991,104 @@ export async function run_test_suite(cards: Cards) {
             assert(v, () => `No condition of type ${k} in test set.`);
         }
     });
-    test_query(
-        'name, ignore punctuation',
-        't.a/\\,m\'":i;yoc',
-        ['Tamiyo, Collector of Tales', 'Tamiyo, Compleated Sage'],
-    );
-    test_query(
-        'name, match split cards',
-        "'FIRE //'",
-        ['Fire // Ice'],
-    );
-    test_query(
-        'name, match split cards inexact',
-        "fire//ice",
-        ['Fire // Ice', 'Ghostfire Slice', 'Iceman and Firestar', 'Sword of Fire and Ice'],
-    );
-    test_query(
-        'name, match split cards with backslash',
-        "fire\\ice",
-        ['Fire // Ice', 'Ghostfire Slice', 'Iceman and Firestar', 'Sword of Fire and Ice'],
-    );
-    test_query(
-        "name, match double-faced cards",
-        '"pathway // bould"',
-        ['Branchloft Pathway // Boulderloft Pathway'],
-    );
-    test_query(
-        'cmc=',
-        'cmc=0 t:sorcery vision',
-        ['Ancestral Vision'],
-    );
-    // Same as =
-    test_query(
-        'cmc:',
-        'cmc:16',
-        ['Draco'],
-    );
-    test_query(
-        'cmc>',
-        'cmc>20',
-        ['Gleemax'],
-    );
-    test_query(
-        'cmc<=',
-        'cmc<=0 cinder',
-        ['Cinder Barrens', 'Cinder Glade', 'Cinder Marsh'],
-    );
-    test_query(
-        'mana=',
-        'm=rgwu',
-        ['Aragorn, the Uniter', 'Avatar Aang // Aang, Master of Elements', 'Elusen, the Giving', 'Ink-Treader Nephilim', 'Kynaios and Tiro of Meletis', 'Omnath, Locus of Creation', 'The Fantastic Four'],
-    );
-    test_query(
-        'mana!=',
-        'mana!=2wr agrus',
-        ['Agrus Kos, Eternal Soldier', 'Agrus Kos, Wojek Veteran'],
-    );
-    test_query(
-        'mana>',
-        'm>rgw cmc<=4 t:elf',
-        ['Fleetfoot Dancer', 'Obuun, Mul Daya Ancestor', 'Rocco, Cabaretti Caterer', 'Shalai and Hallar'],
-    );
-    test_query(
-        'mana<',
-        'm<rgw class',
-        ['Barbarian Class', 'Bard Class', 'Cleric Class', 'Fighter Class', 'Paladin Class'],
-    );
-    test_query(
-        'mana>=',
-        'mana>=rgw charm',
-        ['Cabaretti Charm', 'Naya Charm', "Rith's Charm"],
-    );
-    // Same as >=
-    test_query(
-        'mana:',
-        'mana:rgw charm',
-        ['Cabaretti Charm', 'Naya Charm', "Rith's Charm"],
-    );
-    test_query(
-        'mana<=',
-        'mana<=rgw charm v',
-        ['Fever Charm', 'Ivory Charm', 'Vitality Charm'],
-    );
-    test_query(
-        'mana {C}',
-        'm>{c}cc',
-        ['Echoes of Eternity', 'Rise of the Eldrazi'],
-    );
-    test_query(
-        'mana generic',
-        'm>={7}{4}2 m<15',
-        ['Emrakul, the Promised End'],
-    );
-    test_query(
-        'mana generic X',
-        'm>XXX',
-        ['Crackle with Power', 'Doppelgang'],
-    );
-    test_query(
-        'mana hybrid',
-        'm={R/U}{R/U}{R/U}',
-        ['Crag Puca'],
-    );
-    test_query(
-        'mana monocolored hybrid',
-        'm>={2/r}{2/w}{2/b}',
-        ['Defibrillating Current', 'Reaper King', 'Reigning Victor'],
-    );
-    test_query(
-        'mana colorless hybrid',
-        'm>={C/B}',
-        ['Ulalek, Fused Atrocity'],
-    );
-    test_query(
-        'mana phyrexian',
-        'm={u/p}',
-        ['Gitaxian Probe', 'Mental Misstep'],
-    );
-    test_query(
-        'mana phyrexian hybrid',
-        'm:{w/G/P}',
-        ['Ajani, Sleeper Agent'],
-    );
-    test_query(
-        'mana<0',
-        'm<0 ever',
-        ['Blazemire Verge', 'Bleachbone Verge', 'Everglades', 'Evermind', 'Gloomlake Verge', 'Needleverge Pathway // Pillarverge Pathway', 'Riverpyre Verge', 'Thornspire Verge'],
-    );
-    // This is a weird one, zero-cost and no-cost are less than any nonzero cost.
-    test_query(
-        'mana<{R}',
-        'm<{R} t:instant ve',
-        ['Evermind', 'Intervention Pact'],
-    );
-    test_query(
-        'mana with {0} and other symbols',
-        'm:{0}{r}{r}{r} ball',
-        ['Ball Lightning', 'Jaya Ballard'],
-    );
-    test_query(
-        'rarity=',
-        'rarity=c m>=ggg',
-        ['Kindercatch', 'Nyxborn Colossus'],
-    );
-    // Same as =
-    test_query(
-        'rarity:',
-        'r:c m>=ggg',
-        ['Kindercatch', 'Nyxborn Colossus'],
-    );
-    test_query(
-        'rarity<',
-        'RARity<UNcommon m>=ggg',
-        ['Kindercatch', 'Nyxborn Colossus'],
-    );
-    test_query(
-        'rarity!=',
-        'r!=Special m:gggg GIANT',
-        ['Craw Giant'],
-    );
-    test_query(
-        'oracle:',
-        'o:rampage t:giant',
-        ['Craw Giant', 'Frost Giant'],
-    );
-    // Same as :
-    test_query(
-        'oracle=',
-        'oracle="it deals 6 damage to each creature"',
-        ['Bloodfire Colossus', 'Tornado Elemental', 'Lord of Shatterskull Pass', 'Cathedral Membrane', 'Lavabrink Floodgates'],
-    );
-    // Reminder text shouldn't match.
-    test_query(
-        'oracle reminder text',
-        'oracle:"to mill a card,"',
-        [],
-    );
-    test_query(
-        'fulloracle:',
-        'fulloracle:"to mill a card," t:instant',
-        ['Dig Up the Body', 'Wasteful Harvest'],
-    );
-    test_query(
-        'format:',
-        'f:premodern termina',
-        ['Terminal Moraine', 'Terminate', 'Aphetto Exterminator'],
-    );
-    // Same as :
-    test_query(
-        'format=',
-        'format=premodern suppress',
-        ['Brutal Suppression', 'Suppress'],
-    );
-    test_query(
-        'color=',
-        'color=gr gut',
-        ['Guttural Response', 'Raggadragga, Goreguts Boss'],
-    );
-    // Same as >=
-    test_query(
-        'color:',
-        'c:gr scrapper',
-        ['Scuzzback Scrapper'],
-    );
-    test_query(
-        'color: with number',
-        'color:4 year<2010',
-        ['Dune-Brood Nephilim', 'Glint-Eye Nephilim', 'Ink-Treader Nephilim', 'Witch-Maw Nephilim', 'Yore-Tiller Nephilim'],
-    );
-    test_query(
-        'color< with number',
-        'c<2 abundant',
-        ['Abundant Countryside', 'Abundant Growth', 'Abundant Harvest', 'Abundant Maw'],
-    );
-    test_query(
-        'identity=',
-        'identity=gr glade',
-        ['Cinder Glade'],
-    );
-    // Same as <=
-    test_query(
-        'identity:',
-        'id:gr scrapper',
-        ['Elvish Scrapper', 'Gruul Scrapper', 'Khenra Scrapper', 'Narstad Scrapper', 'Scrapper Champion', 'Scuzzback Scrapper', 'Slagdrill Scrapper', 'Tuktuk Scrapper'],
-    );
-    test_query(
-        'identity: with number',
-        'id:4 year<2010',
-        ['Dune-Brood Nephilim', 'Glint-Eye Nephilim', 'Ink-Treader Nephilim', 'Witch-Maw Nephilim', 'Yore-Tiller Nephilim'],
-    );
-    test_query(
-        'identity> with number',
-        'id>4 year<2000',
-        ['Jack-in-the-Mox', 'Naked Singularity', 'Reality Twist', 'Sliver Queen'],
-    );
-    test_query(
-        'quotes "',
-        '"boros guild"',
-        ['Boros Guildgate', 'Boros Guildmage'],
-    );
-    test_query(
-        "quotes '",
-        "o:'one item'",
-        ['Goblin Game', "Ladies' Knight"],
-    );
-    test_query(
-        'ignore single quote',
-        "o:tamiyo's cmc>4",
-        ['Tamiyo, Compleated Sage'],
-    );
-    test_query(
-        'set',
-        's:war ajani',
-        ["Ajani's Pridemate", 'Ajani, the Greathearted'],
-    );
-    test_query(
-        'edition',
-        'e:RAV drake',
-        ['Drake Familiar', 'Snapping Drake', 'Tattered Drake'],
-    );
-    test_query(
-        'negation',
-        '-t:land forest',
-        ['Deep Forest Hermit', 'Forest Bear', 'Great Forest Druid', 'Hei Bai, Forest Guardian', 'Jaheira, Friend of the Forest'],
-    );
-    // SF seems to interpret this as "name does not contain the empty string".
-    test_query(
-        'empty negation',
-        '-',
-        [],
-    );
-    // SF seems to interpret this as "name does not contain the empty string".
-    test_query(
-        'effectively empty negation',
-        '-.',
-        [],
-    );
-    // Negation means "true if no version of this card matches the nested condition".
-    test_query(
-        'negate condition on version-specific property',
-        '-f:premodern carpet',
-        ["Al-abara's Carpet"],
-    );
-    test_query(
-        'year=',
-        'year=2011 alloy',
-        ['Alloy Myr'],
-    );
-    // Same as =
-    test_query(
-        'year:',
-        'year:1999 about',
-        ['About Face'],
-    );
-    test_query(
-        'year<=',
-        'year<=2011 alloy',
-        ['Alloy Golem', 'Alloy Myr'],
-    );
-    test_query(
-        'year, conflicting',
-        'year>=2020 year<=2011 alloy',
-        [],
-    );
-    test_query(
-        'date:',
-        'date:1993-08-05 rec',
-        ['Ancestral Recall', 'Resurrection'],
-    );
-    test_query(
-        'date>= and date<=',
-        'grave date<=2003-08 date>=2003-04',
-        ['Call to the Grave', 'Gravedigger', 'Grave Pact', 'Reaping the Graves'],
-    );
-    test_query(
-        'reprint',
-        'not:reprint set:m12 t:wizard',
-        ['Alabaster Mage', 'Azure Mage', "Jace's Archivist", 'Lord of the Unreal', 'Merfolk Mesmerist', 'Onyx Mage'],
-    );
-    test_query(
-        'disjunction',
-        'animate t:instant or abundance t:enchantment',
-        ['Abundance', 'Animate Land', 'Leyline of Abundance', 'Overabundance', 'Trace of Abundance'],
-    );
-    test_query(
-        'disjunction',
-        '( mind OR power ) drain',
-        ['Drain Power', 'Mind Drain'],
-    );
-    test_query(
-        'parens',
-        'mana for (t:creature or t:artifact)',
-        ['Manaforce Mace', 'Manaforge Cinder', 'Manaform Hellkite'],
-    );
-    test_query(
-        'nested parens',
-        'mana for ((t:creature t:dragon) or t:artifact)',
-        ['Manaforce Mace', 'Manaform Hellkite'],
-    );
-    test_query(
-        'empty parens',
-        'draining or ()',
-        ['Draining Whelk'],
-    );
-    test_query(
-        'no space before opening paren',
-        'mox(ruby)',
-        [],
-    );
-    test_query(
-        'too many opening parens',
-        '((mox) sapphire',
-        [],
-    );
-    test_query(
-        'too many closing parens',
-        '(mox) sapphire)',
-        [],
-    );
-    test_query(
-        'large query tree',
-        'grave -t:ench -(stone or (t:land (cairn or lan)) or t:creature) -(t:instant or t:sorcery)',
-        ['Elephant Graveyard', 'Graveyard Shovel', "Titan's Grave", 'Watery Grave'],
-    );
-    test_query(
-        'even',
-        'cmc:even belly',
-        ['Blightbelly Rat', 'Fire-Belly Changeling', 'Lead-Belly Chimera'],
-    );
-    test_query(
-        'odd',
-        'cmc:odd belly',
-        ['Lavabelly Sliver', 'Poisonbelly Ogre', 'Ravenous Rotbelly'],
-    );
-    test_query(
-        'subset',
-        'subset:Simple',
-        ['Mana Matrix'],
-        { subsets: { 'Simple': '"Mana Matrix"' } },
-    );
-    test_query(
-        'complex subset',
-        'subset:Complex',
-        ['Myr Matrix'],
-        { subsets: { 'Complex': 'r:r matrix o:creature cmc>=5' } },
-    );
-    test_query(
-        'subset with spaces in name',
-        'subset:"A long name"',
-        ['Psychic Puppetry'],
-        { subsets: { 'A long name': '"Psychic Puppetry"' } },
-    );
+
+    for (const def of query_test_definitions) {
+        const MAX_MATCHES = 20;
+        const expected = new Set(def.expected);
+        assert(expected.size <= MAX_MATCHES);
+
+        function test_query_helper(
+            method: string,
+            execute_query: (
+                subset_store: Subset_Store,
+                query: Query,
+                logger: Logger,
+                card_logger: (idx: number) => Logger,
+            ) => ReadonlyMap<number, number>,
+        ) {
+            test(`${def.desc} [${method}] [${def.query}]`, async logger => {
+                const subset_store = new Subset_Store(logger);
+
+                if (def.subsets) {
+                    for (const [name, query] of Object.entries(def.subsets)) {
+                        const subset = subset_store.create(
+                            crypto.randomUUID(),
+                            name,
+                            parse_query(EMPTY_MAP, query),
+                        );
+                        assert(subset !== null);
+                    }
+                }
+
+                const query = simplify_query(
+                    subset_store.id_to_subset,
+                    parse_query(subset_store.name_to_subset, def.query),
+                );
+                const result = execute_query(
+                    subset_store,
+                    query,
+                    Nop_Logger,
+                    () => Nop_Logger,
+                );
+
+                const actual = new Set([...result.keys()].map(idx => cards.name(idx)));
+
+                if (!deep_eq(actual, expected)) {
+                    const missing_set = expected.difference(actual);
+                    const unexpected_set = actual.difference(expected);
+                    const log_set = new Set;
+
+                    for (const c of missing_set) {
+                        log_set.add(c);
+
+                        // Ensure we log at most 10 cards.
+                        if (log_set.size >= 10) {
+                            break;
+                        }
+                    }
+
+                    for (const c of unexpected_set) {
+                        log_set.add(c);
+
+                        // Ensure we log at most 10 cards.
+                        if (log_set.size >= 10) {
+                            break;
+                        }
+                    }
+
+                    execute_query(
+                        subset_store,
+                        query,
+                        logger,
+                        idx => (log_set.has(cards.name(idx)) ? logger : Nop_Logger),
+                    );
+
+                    const max_warn = unexpected_set.size > 5 ? ' (showing max. 5)' : '';
+
+                    throw Error(
+                        `Expected to get ${expected.size} matches, got ${actual.size}. Also expected: ${to_string(missing_set)}, didn't expect: ${to_string([...unexpected_set].slice(0, 5))}${max_warn}.`
+                    );
+                }
+            });
+        }
+
+        test_query_helper(
+            'legacy',
+            (subset_store, query, _logger, card_logger) => find_cards_matching_query(
+                cards,
+                subset_store,
+                query,
+                card_logger,
+            ),
+        );
+
+        test_query_helper(
+            'engine',
+            (subset_store, query, logger, card_logger) =>
+                new Query_Engine(cards, indices, subset_store)
+                    .execute(logger, card_logger, query,),
+        );
+    }
 
     // Load all data in advance, so timings are more meaningful.
     const loads = PROPS.map(p => cards.load(p));

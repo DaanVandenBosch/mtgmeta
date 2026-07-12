@@ -1,13 +1,15 @@
 import { get_el, get_params } from "./core";
 import { Application_Model } from "./model/application_model";
 import { Application_View } from "./view/application_view";
-import { run_test_suite } from "./tests";
 import { run_benchmarks } from "./benchmarks";
 import { Context } from "./context";
+import { run_test_suite } from "./tests";
 
 async function init() {
     const ctx = new Context;
     ctx.logger.time('init');
+
+    await maybe_run_tests_and_benchmarks(ctx)
 
     const app = new Application_Model(ctx);
 
@@ -18,8 +20,16 @@ async function init() {
     await ctx.cards.load_promise;
 
     ctx.logger.time_end('init');
+}
 
-    // Run tests and benchmarks if requested.
+if (document.body) {
+    init();
+} else {
+    globalThis.addEventListener('DOMContentLoaded', init);
+}
+
+/** Run tests and benchmarks if requested. */
+async function maybe_run_tests_and_benchmarks(ctx: Context) {
     const params = get_params();
     const tests_param_str = params.get('tests');
     const tests_param =
@@ -38,16 +48,10 @@ async function init() {
         || /^\d+\.\d+\.\d+\.\d+(:\d+)?$/g.test(globalThis.location.hostname);
 
     if (tests_param === true || (is_dev_host && tests_param === null)) {
-        await run_test_suite(ctx.cards);
+        await run_test_suite(ctx.cards, ctx.indices);
     }
 
     if (benchmarks_param === true) {
-        await run_benchmarks(ctx.cards);
+        await run_benchmarks(ctx.cards, ctx.indices);
     }
-}
-
-if (document.body) {
-    init();
-} else {
-    globalThis.addEventListener('DOMContentLoaded', init);
 }
