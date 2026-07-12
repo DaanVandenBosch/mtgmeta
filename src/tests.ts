@@ -1079,13 +1079,9 @@ export async function run_test_suite(cards: Cards, indices: Indices) {
     }
 
     // Load all data in advance, so timings are more meaningful.
-    const loads = PROPS.map(p => cards.load(p));
+    await Promise.all(PROPS.map(p => cards.load(p)));
 
-    for (const load of loads) {
-        await load;
-    }
-
-    indices.rebuild(Console_Logger);
+    indices.rebuild(Console_Logger, new Set(PROPS));
 
     Console_Logger.time_end('run_test_suite_setup');
     Console_Logger.time('run_test_suite_execute');

@@ -2,7 +2,6 @@ import type { Cards, Sort_Order } from "../cards";
 import { Nop_Logger, type Logger } from "../core";
 import { PROPS_REQUIRED_FOR_DISPLAY, type Query } from "./query";
 import { query_hash } from "./hash";
-import type { Subset_Store } from "../subset";
 import type { Query_Engine_Interface } from "./engine";
 
 export class Query_Executor {

@@ -245,29 +245,11 @@ export class Enode_Constructor {
             return { all: true, node: this.create_enode_substring(condition, negate) };
         }
 
-        const { candidates, exact } = this.indices.get_candidates(condition.prop, condition.value);
-
-        // Condition string is shorter than the index' n-gram size, need to execute over all cards.
-        if (candidates === null) {
-            return { all: true, node: this.create_enode_substring(condition, negate) };
-        }
-
-        // No card has this combination of n-grams.
-        if (candidates.size === 0) {
-            return NONE_RESULT;
-        }
-
-        // Condition string is exactly the n-gram size, the candidate set is the exact result set.
-        if (exact) {
-            return { all: false, cards: candidates, node: null };
-        }
-
-        // Typical case, need to execute over a subset of cards.
-        return {
-            all: false,
-            cards: candidates,
-            node: this.create_enode_substring(condition, negate),
-        };
+        return this.index_lookup(
+            condition.prop,
+            condition.value,
+            () => this.create_enode_substring(condition, negate),
+        );
     }
 
     private process_condition_predicate(
@@ -322,6 +304,20 @@ export class Enode_Constructor {
         }
 
         return this.process_condition(subset.query.condition, negate, logger);
+    }
+
+    private index_lookup(prop: Prop, value: any, create_enode: () => Enode): Enode_Result {
+        const { candidates, exact } = this.indices.get_candidates(prop, value);
+
+        if (candidates === null) {
+            return { all: true, node: exact ? null : create_enode() };
+        }
+
+        if (candidates.size === 0) {
+            return NONE_RESULT;
+        }
+
+        return { all: false, cards: candidates, node: exact ? null : create_enode() };
     }
 
     private create_enode_comparison(

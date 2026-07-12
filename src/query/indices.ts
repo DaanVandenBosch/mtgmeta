@@ -6,6 +6,7 @@ const freeze = Object.freeze;
 export type Result = { candidates: ReadonlySet<number> | null, exact: boolean };
 
 const EMPTY_RESULT: Result = freeze({ candidates: EMPTY_SET, exact: true });
+const ALL_INEXACT_RESULT: Result = freeze({ candidates: null, exact: false });
 
 export class Indices {
     private readonly cards: Cards;
@@ -17,8 +18,7 @@ export class Indices {
     }
 
     // TODO: Improve index rebuild speed.
-    // TODO: Only rebuild indices that are required.
-    rebuild(logger: Logger) {
+    rebuild(logger: Logger, props: ReadonlySet<Prop>) {
         if (this.data_creation_time === this.cards.creation_time) {
             logger.log('indices up-to-date');
             return;
@@ -26,33 +26,46 @@ export class Indices {
 
         logger.time('rebuilding indices');
 
-        const name_inexact_data = this.cards.get_all<string>('name_inexact') ?? unreachable();
-        this.indices.set('name_inexact', new Substring_Index(name_inexact_data, 3));
+        if (props.has('name_inexact')) {
+            const name_inexact_data = this.cards.get_all<string>('name_inexact') ?? unreachable();
+            this.indices.set('name_inexact', new Substring_Index(name_inexact_data, 3));
+        }
 
-        const name_search_data = this.cards.get_all<string>('name_search') ?? unreachable();
-        this.indices.set('name_search', new Substring_Index(name_search_data, 3));
+        if (props.has('name_search')) {
+            const name_search_data = this.cards.get_all<string>('name_search') ?? unreachable();
+            this.indices.set('name_search', new Substring_Index(name_search_data, 3));
+        }
 
-        const oracle_search_data = this.cards.get_all<string>('oracle_search') ?? unreachable();
-        this.indices.set('oracle_search', new Substring_Index(oracle_search_data, 3));
+        if (props.has('oracle_search')) {
+            const oracle_search_data = this.cards.get_all<string>('oracle_search') ?? unreachable();
+            this.indices.set('oracle_search', new Substring_Index(oracle_search_data, 3));
+        }
 
-        const full_oracle_search_data =
-            this.cards.get_all<string>('full_oracle_search') ?? unreachable();
-        this.indices.set(
-            'full_oracle_search',
-            new Substring_Index(full_oracle_search_data, 3),
-        );
+        if (props.has('full_oracle_search')) {
+            const full_oracle_search_data =
+                this.cards.get_all<string>('full_oracle_search') ?? unreachable();
+            this.indices.set(
+                'full_oracle_search',
+                new Substring_Index(full_oracle_search_data, 3),
+            );
+        }
 
-        const type_search_data =
-            this.cards.get_all<ReadonlyArray<string>>('type_search') ?? unreachable();
-        this.indices.set('type_search', new Substring_Index(type_search_data, 3));
+        if (props.has('type_search')) {
+            const type_search_data =
+                this.cards.get_all<ReadonlyArray<string>>('type_search') ?? unreachable();
+            this.indices.set('type_search', new Substring_Index(type_search_data, 3));
+        }
 
         this.data_creation_time = this.cards.creation_time;
         logger.time_end('rebuilding indices');
     }
 
     get_candidates(prop: Prop, value: any): Result {
-        const index = this.indices.get(prop)
-            ?? unreachable(`No index for property ${prop}.`);
+        const index = this.indices.get(prop);
+
+        if (index === undefined) {
+            return ALL_INEXACT_RESULT;
+        }
 
         return index.get_candidates(value);
     }
@@ -63,8 +76,8 @@ interface Index {
 }
 
 class Substring_Index implements Index {
-    readonly ngrams: ReadonlyMap<string, ReadonlySet<number>>;
-    readonly ngram_size: number;
+    private readonly ngrams: ReadonlyMap<string, ReadonlySet<number> | null>;
+    private readonly ngram_size: number;
 
     constructor(
         values: ReadonlyArray<string> | ReadonlyArray<ReadonlyArray<string>>,
@@ -82,6 +95,14 @@ class Substring_Index implements Index {
                 }
             } else {
                 Substring_Index.add_to_ngrams(ngram_size, ngrams, card_idx, v as string);
+            }
+        }
+
+        const ngrams_null: Map<string, Set<number> | null> = ngrams;
+
+        for (const [ngram, cards] of ngrams) {
+            if (cards.size > 10_000) {
+                ngrams_null.set(ngram, null);
             }
         }
 
@@ -114,10 +135,13 @@ class Substring_Index implements Index {
         let candidates: ReadonlySet<number> | null = null;
 
         for (let i = 0, end = value.length - ngram_size; i <= end; i++) {
-            const set = ngrams.get(value.slice(i, i + ngram_size));
+            const ngram = value.slice(i, i + ngram_size);
+            const set = ngrams.get(ngram);
 
             if (set === undefined) {
                 return EMPTY_RESULT;
+            } else if (set === null) {
+                continue;
             }
 
             if (candidates) {
@@ -127,6 +151,7 @@ class Substring_Index implements Index {
             }
         }
 
+        // Candidates will be null if value is shorter than n-gram size. 
         return { candidates, exact: value.length === ngram_size };
     }
 }

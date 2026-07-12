@@ -18,13 +18,13 @@ export class Query_Engine implements Query_Engine_Interface {
     private readonly cards: Cards;
     private readonly indices: Indices;
     private readonly enode_constructor: Enode_Constructor;
-    private readonly executor: Enode_Executor;
+    private readonly enode_executor: Enode_Executor;
 
     constructor(cards: Cards, indices: Indices, subset_store: Subset_Store) {
         this.cards = cards;
         this.indices = indices;
         this.enode_constructor = new Enode_Constructor(cards, indices, subset_store);
-        this.executor = new Enode_Executor(cards);
+        this.enode_executor = new Enode_Executor(cards);
     }
 
     execute(
@@ -35,7 +35,7 @@ export class Query_Engine implements Query_Engine_Interface {
         logger.log('query:', query);
         logger.time('full execution');
 
-        this.indices.rebuild(logger);
+        this.indices.rebuild(logger, new Set(query.props));
 
         logger.group('enode construction');
         logger.time('enode construction');
@@ -68,18 +68,18 @@ export class Query_Engine implements Query_Engine_Interface {
         } else {
             // Execute the query execution tree on the subset of cards returned by the construction
             // phase.
-            const executor = this.executor;
+            const enode_executor = this.enode_executor;
             result = new Map<number, number>;
 
             if (enode_result.all) {
                 const len = this.cards.length ?? unreachable();
 
                 for (let card_idx = 0; card_idx < len; card_idx++) {
-                    executor.execute_for_card(card_logger, enode, card_idx, result);
+                    enode_executor.execute_for_card(card_logger, enode, card_idx, result);
                 }
             } else {
                 for (const card_idx of enode_result.cards) {
-                    executor.execute_for_card(card_logger, enode, card_idx, result);
+                    enode_executor.execute_for_card(card_logger, enode, card_idx, result);
                 }
             }
         }

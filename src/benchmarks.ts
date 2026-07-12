@@ -113,6 +113,8 @@ export async function run_benchmarks(cards: Cards, indices: Indices) {
     // Load all data in advance.
     await Promise.all(PROPS.map(p => cards.load(p)));
 
+    indices.rebuild(Console_Logger, new Set(PROPS));
+
     const prev_results_str = localStorage.getItem('benchmarks');
     const prev_results: Benchmark_Results =
         prev_results_str === null ? {} : JSON.parse(prev_results_str);
