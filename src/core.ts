@@ -49,6 +49,7 @@ export interface Logger {
 
     log(...args: any[]): void;
     info(...args: any[]): void;
+    warn(...args: any[]): void;
     error(...args: any[]): void;
     group(...args: any[]): void;
     group_end(): void;
@@ -61,6 +62,7 @@ export const Nop_Logger: Logger = {
 
     log() { },
     info() { },
+    warn() { },
     error() { },
     group() { },
     group_end() { },
@@ -73,6 +75,7 @@ export const Console_Logger: Logger = {
 
     log(...args: any[]) { console.log(...args); },
     info(...args: any[]) { console.info(...args); },
+    warn(...args: any[]) { console.warn(...args); },
     error(...args: any[]) { console.error(...args); },
     group(...args: any[]) { console.group(...args); },
     group_end() { console.groupEnd(); },
@@ -87,6 +90,7 @@ export class Mem_Logger implements Logger {
 
     log(...args: any[]) { this.message('log', ...args); }
     info(...args: any[]) { this.message('info', ...args); }
+    warn(...args: any[]) { this.message('warn', ...args); }
     error(...args: any[]) { this.message('error', ...args); }
     group(...args: any[]) { this.message('group', ...args); }
     group_end() { this.message('group_end'); }

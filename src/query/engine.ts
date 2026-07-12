@@ -32,7 +32,6 @@ export class Query_Engine implements Query_Engine_Interface {
         card_logger: (card_idx: number) => Logger,
         query: Query,
     ): ReadonlyMap<number, number> {
-        logger.log('query:', query);
         logger.time('full execution');
 
         this.indices.rebuild(logger, new Set(query.props));

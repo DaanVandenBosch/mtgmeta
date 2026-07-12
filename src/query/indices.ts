@@ -1,5 +1,5 @@
 import type { Cards } from "../cards";
-import { EMPTY_SET, unreachable, type Logger } from "../core";
+import { EMPTY_SET, type Logger } from "../core";
 import type { Prop } from "./query";
 const freeze = Object.freeze;
 
@@ -19,51 +19,61 @@ export class Indices {
 
     // TODO: Improve index rebuild speed.
     rebuild(logger: Logger, props: ReadonlySet<Prop>) {
-        if (this.data_creation_time === this.cards.creation_time) {
-            logger.log('indices up-to-date');
-            return;
+        if (this.data_creation_time !== this.cards.creation_time) {
+            this.indices.clear();
         }
 
+        logger.group('rebuilding indices');
         logger.time('rebuilding indices');
 
-        if (props.has('name_inexact')) {
-            const name_inexact_data = this.cards.get_all<string>('name_inexact') ?? unreachable();
-            this.indices.set('name_inexact', new Substring_Index(name_inexact_data, 3));
-        }
+        let updated = false;
 
-        if (props.has('name_search')) {
-            const name_search_data = this.cards.get_all<string>('name_search') ?? unreachable();
-            this.indices.set('name_search', new Substring_Index(name_search_data, 3));
-        }
+        if (this.rebuild_substring_index(logger, props, 'name_inexact')) updated = true;
+        if (this.rebuild_substring_index(logger, props, 'name_search')) updated = true;
+        if (this.rebuild_substring_index(logger, props, 'oracle_search')) updated = true;
+        if (this.rebuild_substring_index(logger, props, 'full_oracle_search')) updated = true;
+        if (this.rebuild_substring_index(logger, props, 'type_search')) updated = true;
 
-        if (props.has('oracle_search')) {
-            const oracle_search_data = this.cards.get_all<string>('oracle_search') ?? unreachable();
-            this.indices.set('oracle_search', new Substring_Index(oracle_search_data, 3));
-        }
-
-        if (props.has('full_oracle_search')) {
-            const full_oracle_search_data =
-                this.cards.get_all<string>('full_oracle_search') ?? unreachable();
-            this.indices.set(
-                'full_oracle_search',
-                new Substring_Index(full_oracle_search_data, 3),
-            );
-        }
-
-        if (props.has('type_search')) {
-            const type_search_data =
-                this.cards.get_all<ReadonlyArray<string>>('type_search') ?? unreachable();
-            this.indices.set('type_search', new Substring_Index(type_search_data, 3));
+        if (!updated) {
+            logger.log('All required indices up-to-date.');
         }
 
         this.data_creation_time = this.cards.creation_time;
         logger.time_end('rebuilding indices');
+        logger.group_end();
     }
 
-    get_candidates(prop: Prop, value: any): Result {
+    private rebuild_substring_index(logger: Logger, props: ReadonlySet<Prop>, prop: Prop): boolean {
+        if (this.indices.has(prop) || !props.has(prop)) {
+            return false;
+        }
+
+        if (logger.should_log) {
+            logger.log(`Rebuilding ${prop} index.`);
+        }
+
+        const data = this.cards.get_all<string>(prop);
+
+        if (data === null) {
+            if (logger.should_log) {
+                logger.warn(`Can't rebuild ${prop} index because there is no data.`);
+            }
+
+            return false;
+        }
+
+        this.indices.set(prop, new Substring_Index(data, 3));
+        return true;
+    }
+
+    get_candidates(prop: Prop, value: any, logger: Logger): Result {
         const index = this.indices.get(prop);
 
         if (index === undefined) {
+            if (logger.should_log) {
+                logger.warn(`No index for property ${prop}.`);
+            }
+
             return ALL_INEXACT_RESULT;
         }
 

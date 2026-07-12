@@ -53,7 +53,7 @@ export class Enode_Constructor {
                 result = this.process_condition(condition.condition, !negate, logger);
                 break;
             case 'substring':
-                result = this.process_condition_substring(condition, negate);
+                result = this.process_condition_substring(condition, negate, logger);
                 break;
             case 'even':
             case 'odd':
@@ -234,6 +234,7 @@ export class Enode_Constructor {
     private process_condition_substring(
         condition: Substring_Condition,
         negate: boolean,
+        logger: Logger,
     ): Enode_Result {
         // All string properties contain the empty string.
         if (condition.value.length === 0) {
@@ -249,6 +250,7 @@ export class Enode_Constructor {
             condition.prop,
             condition.value,
             () => this.create_enode_substring(condition, negate),
+            logger,
         );
     }
 
@@ -306,8 +308,13 @@ export class Enode_Constructor {
         return this.process_condition(subset.query.condition, negate, logger);
     }
 
-    private index_lookup(prop: Prop, value: any, create_enode: () => Enode): Enode_Result {
-        const { candidates, exact } = this.indices.get_candidates(prop, value);
+    private index_lookup(
+        prop: Prop,
+        value: any,
+        create_enode: () => Enode,
+        logger: Logger,
+    ): Enode_Result {
+        const { candidates, exact } = this.indices.get_candidates(prop, value, logger);
 
         if (candidates === null) {
             return { all: true, node: exact ? null : create_enode() };

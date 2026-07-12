@@ -114,11 +114,11 @@ export class Query_Executor {
         }
 
         logger.time_end('load');
-        logger.time('find_cards_matching_query');
+        logger.time('engine execution');
 
         const card_indexes = this.engine.execute(this.logger, () => Nop_Logger, query);
 
-        logger.time_end('find_cards_matching_query');
+        logger.time_end('engine execution');
         logger.time('load_sorter');
 
         const sorter = await sorter_promise;
