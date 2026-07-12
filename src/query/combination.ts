@@ -1,4 +1,4 @@
-import { assert } from "./core";
+import { assert } from "../core";
 import {
     type Query,
     type Prop,

@@ -157,6 +157,7 @@ export const PER_VERSION_PROPS: readonly Prop[] = freeze([
     'reprint',
     'set',
 ]);
+export const PROPS_REQUIRED_FOR_DISPLAY: readonly Prop[] = freeze(['sfurl', 'img', 'landscape']);
 
 export const MANA_WHITE = 'W';
 export const MANA_BLUE = 'U';

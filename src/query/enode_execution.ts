@@ -1,6 +1,6 @@
 import type { Cards } from "../cards";
 import { unreachable, type Logger } from "../core";
-import { MANA_GENERIC, type Mana_Cost } from "../query";
+import { MANA_GENERIC, type Mana_Cost } from "./query";
 import { Bitset, type Uint_Set } from "../uint_set";
 import { Comparison_Operator, Enode_Type, Prop_Value_Type, type Enode, type Enode_Comparison, type Enode_Conjunction, type Enode_Disjunction, type Enode_Even, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Range, type Enode_Reprint, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
 

@@ -1,12 +1,20 @@
 import type { Cards } from '../cards';
 import { assert, unreachable, type Logger } from '../core';
-import type { Query } from '../query';
+import type { Query } from './query';
 import type { Subset_Store } from '../subset';
 import { Enode_Constructor } from './enode_construction';
 import { Enode_Executor } from './enode_execution';
 import { Indices } from './indices';
 
-export class Query_Engine {
+export interface Query_Engine_Interface {
+    execute(
+        logger: Logger,
+        card_logger: (card_idx: number) => Logger,
+        query: Query,
+    ): ReadonlyMap<number, number>;
+}
+
+export class Query_Engine implements Query_Engine_Interface {
     private readonly cards: Cards;
     private readonly indices: Indices;
     private readonly enode_constructor: Enode_Constructor;
@@ -21,7 +29,7 @@ export class Query_Engine {
 
     execute(
         logger: Logger,
-        exec_logger: (card_idx: number) => Logger,
+        card_logger: (card_idx: number) => Logger,
         query: Query,
     ): ReadonlyMap<number, number> {
         logger.log('query:', query);
@@ -67,11 +75,11 @@ export class Query_Engine {
                 const len = this.cards.length ?? unreachable();
 
                 for (let card_idx = 0; card_idx < len; card_idx++) {
-                    executor.execute_for_card(exec_logger, enode, card_idx, result);
+                    executor.execute_for_card(card_logger, enode, card_idx, result);
                 }
             } else {
                 for (const card_idx of enode_result.cards) {
-                    executor.execute_for_card(exec_logger, enode, card_idx, result);
+                    executor.execute_for_card(card_logger, enode, card_idx, result);
                 }
             }
         }

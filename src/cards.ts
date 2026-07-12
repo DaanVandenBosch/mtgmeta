@@ -1,6 +1,6 @@
 import { assert, assert_eq, Console_Logger, TEXT_DECODER } from './core';
-import { INEXACT_REGEX, PER_VERSION_PROPS, RARITY_RANK, type Prop, type Rarity } from './query';
-import { parse_mana_cost } from './query_parsing';
+import { INEXACT_REGEX, PER_VERSION_PROPS, RARITY_RANK, type Prop, type Rarity } from './query/query';
+import { parse_mana_cost } from './query/parsing';
 
 export type Sort_Order = 'cmc' | 'name' | 'released_at';
 export const SORT_ORDERS: Sort_Order[] = ['cmc', 'name', 'released_at'];

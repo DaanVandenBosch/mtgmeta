@@ -1,6 +1,6 @@
 import type { Context } from "../context";
 import { DEPENDENCY_SYMBOL, type Dependency } from "../deps";
-import type { Condition, Query, Subset } from "../query";
+import type { Condition, Query, Subset } from "../query/query";
 const freeze = Object.freeze;
 
 export class Subset_Model implements Dependency {

@@ -1,6 +1,6 @@
 import { EMPTY_MAP } from "./core";
-import { type Query } from "./query";
-import { parse_query } from "./query_parsing";
+import { type Query } from "./query/query";
+import { parse_query } from "./query/parsing";
 const freeze = Object.freeze;
 
 export const POOL_ALL = 'all';

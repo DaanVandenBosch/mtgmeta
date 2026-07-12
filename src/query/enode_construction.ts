@@ -1,6 +1,6 @@
 import type { Cards } from "../cards";
 import { assert, EMPTY_SET, unreachable, type Logger } from "../core";
-import { MULTI_VALUE_PROPS, PER_FACE_PROPS, PER_VERSION_PROPS, RARITY_RANK, type Comparison_Condition, type Condition, type Conjunction_Condition, type Disjunction_Condition, type Mana_Cost, type Predicate_Condition, type Prop, type Property_Condition, type Query, type Range_Condition, type Rarity, type Subset_Condition, type Substring_Condition } from "../query";
+import { MULTI_VALUE_PROPS, PER_FACE_PROPS, PER_VERSION_PROPS, RARITY_RANK, type Comparison_Condition, type Condition, type Conjunction_Condition, type Disjunction_Condition, type Mana_Cost, type Predicate_Condition, type Prop, type Property_Condition, type Query, type Range_Condition, type Rarity, type Subset_Condition, type Substring_Condition } from "./query";
 import type { Subset_Store } from "../subset";
 import { Comparison_Operator, Enode_Type, Prop_Value_Type, type Enode, type Enode_Comparison, type Enode_Even, type Enode_Mana_Cost, type Enode_Mana_Cost_Number, type Enode_Range, type Enode_Substring, type Enode_Substring_Per_face } from "./enode";
 import type { Indices } from "./indices";

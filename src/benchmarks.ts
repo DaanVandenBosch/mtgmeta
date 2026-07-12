@@ -1,13 +1,13 @@
 import { assert_eq, Console_Logger, Nop_Logger, time_to_string } from "./core";
-import { PROPS, type Query } from "./query";
-import * as query_parsing from "./query_parsing";
-import { Query_Evaluator } from "./query_eval";
+import { PROPS, type Query } from "./query/query";
+import * as query_parsing from "./query/parsing";
 import type { Cards } from "./cards";
 import { Subset_Store } from "./subset";
-import { query_hash } from "./query_hash";
+import { query_hash } from "./query/hash";
 import { query_test_definitions } from "./tests";
 import { Query_Engine } from "./query/engine";
 import type { Indices } from "./query/indices";
+import { Legacy_Query_Engine } from "./query/legacy";
 
 const WARM_UP_ITERATIONS = 100;
 const ITERATIONS = 1000;
@@ -46,31 +46,20 @@ export async function run_benchmarks(cards: Cards, indices: Indices) {
     const set_query =
         parse_query('year>=2000 date>=2003-07-29 date<2014-07-18 rarity:uncommon type:creature');
 
-    function query_evaluator_benchmark(
+    function legacy_query_benchmark(
         name: string,
         bitset: boolean,
         small_set_optimization: boolean,
     ) {
         benchmark(
             name,
-            () => new Query_Evaluator(
+            () => new Legacy_Query_Engine(
                 cards,
                 subset_store,
-                set_query,
                 bitset,
                 small_set_optimization,
             ),
-            evaluator => {
-                const len = cards.length!;
-                let result = 0;
-
-                for (let card_idx = 0; card_idx < len; card_idx++) {
-                    const version_idx = evaluator.evaluate(card_idx, Nop_Logger).first_or_null();
-                    result = (result + (version_idx ?? 0)) & 0xFFFFFFFF;
-                }
-
-                return result;
-            },
+            engine => engine.execute(Nop_Logger, () => Nop_Logger, set_query).size,
         );
     }
 
@@ -93,10 +82,10 @@ export async function run_benchmarks(cards: Cards, indices: Indices) {
     );
 
     if (RUN_LEGACY_BENCHMARKS) {
-        query_evaluator_benchmark('Array_Set', false, false);
-        query_evaluator_benchmark('Bitset', true, false);
-        query_evaluator_benchmark('Array_Set small set optimization', false, true);
-        query_evaluator_benchmark('Bitset small set optimization', true, true);
+        legacy_query_benchmark('Array_Set', false, false);
+        legacy_query_benchmark('Bitset', true, false);
+        legacy_query_benchmark('Array_Set small set optimization', false, true);
+        legacy_query_benchmark('Bitset small set optimization', true, true);
     }
 
     for (const def of query_test_definitions) {
@@ -104,38 +93,19 @@ export async function run_benchmarks(cards: Cards, indices: Indices) {
             continue;
         }
 
-        if (RUN_LEGACY_BENCHMARKS) {
-            benchmark(
-                `${def.desc} [${def.query}]`,
-                () => new Query_Evaluator(
-                    cards,
-                    subset_store,
-                    parse_query(def.query),
-                    true,
-                    true,
-                ),
-                evaluator => {
-                    const len = cards.length!;
-                    let result = 0;
-
-                    for (let card_idx = 0; card_idx < len; card_idx++) {
-                        const version_idx = evaluator.evaluate(card_idx, Nop_Logger).first_or_null();
-                        result = (result + (version_idx ?? 0)) | 0;
-                    }
-
-                    return result;
-                },
-            );
-        } else {
-            benchmark(
-                `${def.desc} [${def.query}]`,
-                () => ({
+        benchmark(
+            `${def.desc} [${def.query}]`,
+            () => {
+                const engine = RUN_LEGACY_BENCHMARKS
+                    ? new Legacy_Query_Engine(cards, subset_store, true, true)
+                    : new Query_Engine(cards, indices, subset_store);
+                return {
                     query: parse_query(def.query),
-                    engine: new Query_Engine(cards, indices, subset_store),
-                }),
-                ({ query, engine }) => engine.execute(Nop_Logger, () => Nop_Logger, query).size,
-            );
-        }
+                    engine,
+                };
+            },
+            ({ query, engine }) => engine.execute(Nop_Logger, () => Nop_Logger, query).size,
+        );
     }
 
     Console_Logger.info('Running benchmarks.');

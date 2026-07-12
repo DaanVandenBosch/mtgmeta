@@ -1,4 +1,4 @@
-import type { Mana_Cost } from "../query";
+import type { Mana_Cost } from "./query";
 
 export enum Comparison_Operator {
     EQ = 1,

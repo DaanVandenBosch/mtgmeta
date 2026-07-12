@@ -1,5 +1,5 @@
-import { Buffer } from "./buffer";
-import { assert, unreachable } from "./core";
+import { Buffer } from "../buffer";
+import { assert, unreachable } from "../core";
 import {
     MANA_BLACK,
     MANA_BLUE,

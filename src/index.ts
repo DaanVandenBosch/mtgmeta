@@ -5,8 +5,10 @@ import { run_benchmarks } from "./benchmarks";
 import { Context } from "./context";
 import { run_test_suite } from "./tests";
 
+const USE_LEGACY_ENGINE = true;
+
 async function init() {
-    const ctx = new Context;
+    const ctx = new Context(USE_LEGACY_ENGINE);
     ctx.logger.time('init');
 
     await maybe_run_tests_and_benchmarks(ctx)

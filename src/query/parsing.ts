@@ -1,4 +1,4 @@
-import { assert, unreachable, string_to_int, type Mutable } from './core';
+import { assert, unreachable, string_to_int, type Mutable } from '../core';
 import {
     type Query,
     type Prop,

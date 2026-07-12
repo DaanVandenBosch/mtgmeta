@@ -11,15 +11,15 @@ import {
     type Logger,
 } from "./core";
 import { Array_Set, Bitset, Bitset_32 } from "./uint_set";
-import { PROPS, type Comparison_Condition, type Condition, type Query } from "./query";
-import { parse_query } from "./query_parsing";
-import { simplify_query } from "./query_combination";
-import { find_cards_matching_query } from "./query_eval";
+import { PROPS, type Comparison_Condition, type Condition, type Query } from "./query/query";
+import { parse_query } from "./query/parsing";
+import { simplify_query } from "./query/combination";
 import { remove_parenthesized_text, type Cards } from "./cards";
 import { Subset_Store } from "./subset";
-import { query_hash } from "./query_hash";
-import { Query_Engine } from "./query/engine";
+import { query_hash } from "./query/hash";
+import { Query_Engine, type Query_Engine_Interface } from "./query/engine";
 import { Indices } from "./query/indices";
+import { Legacy_Query_Engine } from "./query/legacy";
 
 type Query_Test_Defininition = {
     desc: string,
@@ -999,12 +999,7 @@ export async function run_test_suite(cards: Cards, indices: Indices) {
 
         function test_query_helper(
             method: string,
-            execute_query: (
-                subset_store: Subset_Store,
-                query: Query,
-                logger: Logger,
-                card_logger: (idx: number) => Logger,
-            ) => ReadonlyMap<number, number>,
+            create_engine: (subset_store: Subset_Store) => Query_Engine_Interface,
         ) {
             test(`${def.desc} [${method}] [${def.query}]`, async logger => {
                 const subset_store = new Subset_Store(logger);
@@ -1020,20 +1015,22 @@ export async function run_test_suite(cards: Cards, indices: Indices) {
                     }
                 }
 
+                const engine = create_engine(subset_store);
                 const query = simplify_query(
                     subset_store.id_to_subset,
                     parse_query(subset_store.name_to_subset, def.query),
                 );
-                const result = execute_query(
-                    subset_store,
-                    query,
+                // Execute query without logging.
+                const result = engine.execute(
                     Nop_Logger,
                     () => Nop_Logger,
+                    query,
                 );
 
                 const actual = new Set([...result.keys()].map(idx => cards.name(idx)));
 
                 if (!deep_eq(actual, expected)) {
+                    // Execute query again to get logs for specific cards.
                     const missing_set = expected.difference(actual);
                     const unexpected_set = actual.difference(expected);
                     const log_set = new Set;
@@ -1056,11 +1053,10 @@ export async function run_test_suite(cards: Cards, indices: Indices) {
                         }
                     }
 
-                    execute_query(
-                        subset_store,
-                        query,
+                    engine.execute(
                         logger,
-                        idx => (log_set.has(cards.name(idx)) ? logger : Nop_Logger),
+                        idx => log_set.has(cards.name(idx)) ? logger : Nop_Logger,
+                        query,
                     );
 
                     const max_warn = unexpected_set.size > 5 ? ' (showing max. 5)' : '';
@@ -1074,19 +1070,11 @@ export async function run_test_suite(cards: Cards, indices: Indices) {
 
         test_query_helper(
             'legacy',
-            (subset_store, query, _logger, card_logger) => find_cards_matching_query(
-                cards,
-                subset_store,
-                query,
-                card_logger,
-            ),
+            subset_store => new Legacy_Query_Engine(cards, subset_store, true, true),
         );
-
         test_query_helper(
             'engine',
-            (subset_store, query, logger, card_logger) =>
-                new Query_Engine(cards, indices, subset_store)
-                    .execute(logger, card_logger, query,),
+            subset_store => new Query_Engine(cards, indices, subset_store),
         );
     }
 

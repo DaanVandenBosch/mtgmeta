@@ -1,9 +1,8 @@
 import { assert, EMPTY_MAP } from "../core";
 import { SORT_ORDERS, type Sort_Order } from "../cards";
-import { type Query } from "../query";
-import { parse_query } from "../query_parsing";
-import { combine_queries_with_conjunction } from "../query_combination";
-import { PROPS_REQUIRED_FOR_DISPLAY } from "../query_eval";
+import { PROPS_REQUIRED_FOR_DISPLAY, type Query } from "../query/query";
+import { parse_query } from "../query/parsing";
+import { combine_queries_with_conjunction } from "../query/combination";
 import { POOL_ALL, POOLS } from "../pool";
 import type { Context } from "../context";
 import { DEPENDENCY_SYMBOL, type Dependency, type Dependent } from "../deps";

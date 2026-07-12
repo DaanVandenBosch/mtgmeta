@@ -1,5 +1,5 @@
 import type { Logger } from "./core";
-import { QUERY_NONE, type Query, type Subset } from "./query";
+import { QUERY_NONE, type Query, type Subset } from "./query/query";
 const freeze = Object.freeze;
 
 export class Subset_Store {

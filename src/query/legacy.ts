@@ -1,8 +1,7 @@
-import { unreachable, type Logger, Nop_Logger, assert } from './core';
-import { type Uint_Set, Bitset, Bitset_32, Array_Set } from './uint_set';
+import { unreachable, type Logger, Nop_Logger, assert } from '../core';
+import { type Uint_Set, Bitset, Bitset_32, Array_Set } from '../uint_set';
 import {
     type Query,
-    type Prop,
     type Condition,
     type Comparison_Condition,
     type Substring_Condition,
@@ -14,12 +13,11 @@ import {
     type Rarity,
     type Property_Condition,
     RARITY_RANK,
+    QUERY_NONE,
 } from './query';
-import { Cards } from './cards';
-import type { Subset_Store } from './subset';
-const freeze = Object.freeze;
-
-export const PROPS_REQUIRED_FOR_DISPLAY: readonly Prop[] = freeze(['sfurl', 'img', 'landscape']);
+import { Cards } from '../cards';
+import type { Subset_Store } from '../subset';
+import type { Query_Engine_Interface } from './engine';
 
 enum Uint_Set_Type {
     BIT32,
@@ -27,68 +25,67 @@ enum Uint_Set_Type {
     ARRAY,
 }
 
-export function find_cards_matching_query(
-    cards: Cards,
-    subset_store: Subset_Store,
-    query: Query,
-    card_logger: (idx: number) => Logger,
-): Map<number, number> {
-    assert(cards.length !== null);
-
-    const evaluator = new Query_Evaluator(cards, subset_store, query, true, true);
-    const matching_cards: Map<number, number> = new Map;
-
-    for (let card_idx = 0; card_idx < cards.length; card_idx++) {
-        try {
-            const result = evaluator.evaluate(card_idx, card_logger(card_idx));
-            const version_idx = result.first_or_null();
-
-            if (version_idx !== null) {
-                matching_cards.set(card_idx, version_idx);
-            }
-        } catch (e) {
-            throw Error(
-                `Couldn't evaluate query with "${cards.name(card_idx) ?? card_idx}".`,
-                { cause: e },
-            );
-        }
-    }
-
-    return matching_cards;
-}
-
-export class Query_Evaluator {
+export class Legacy_Query_Engine implements Query_Engine_Interface {
     private readonly cards: Cards;
     private readonly subset_store: Subset_Store;
-    private readonly query: Query;
     private readonly bitset: boolean;
     private readonly small_set_optimization: boolean;
+    private query: Query = QUERY_NONE;
     private card_idx: number = 0;
     private logger: Logger = Nop_Logger;
 
     constructor(
         cards: Cards,
         subset_store: Subset_Store,
-        query: Query,
         bitset: boolean,
         small_set_optimization: boolean,
     ) {
         this.cards = cards;
         this.subset_store = subset_store;
-        this.query = query;
         this.bitset = bitset;
         this.small_set_optimization = small_set_optimization;
     }
 
-    evaluate(card_idx: number, logger: Logger): Uint_Set {
-        this.card_idx = card_idx;
-        this.logger = logger;
+    execute(
+        _logger: Logger,
+        card_logger: (card_idx: number) => Logger,
+        query: Query,
+    ): ReadonlyMap<number, number> {
+        const cards_len = this.cards.length;
+        assert(cards_len !== null);
 
-        const version_count = this.cards.version_count(card_idx) ?? 1;
+        this.query = query;
 
-        if (logger.should_log) {
-            const name = this.cards.name(card_idx);
-            logger.log('evaluating query with', name, card_idx, 'versions', version_count);
+        const matching_cards: Map<number, number> = new Map;
+
+        for (let card_idx = 0; card_idx < cards_len; card_idx++) {
+            this.card_idx = card_idx;
+            this.logger = card_logger(card_idx);
+
+            try {
+                const result = this.evaluate();
+                const version_idx = result.first_or_null();
+
+                if (version_idx !== null) {
+                    matching_cards.set(card_idx, version_idx);
+                }
+            } catch (e) {
+                throw Error(
+                    `Couldn't evaluate query with "${this.cards.name(card_idx) ?? card_idx}".`,
+                    { cause: e },
+                );
+            }
+        }
+
+        return matching_cards;
+    }
+
+    private evaluate(): Uint_Set {
+        const version_count = this.cards.version_count(this.card_idx) ?? 1;
+
+        if (this.logger.should_log) {
+            const name = this.cards.name(this.card_idx);
+            this.logger.log('evaluating query with', name, this.card_idx, 'versions', version_count);
         }
 
         let version_idxs;

@@ -1,6 +1,6 @@
 import type { Cards } from "../cards";
 import { EMPTY_SET, unreachable, type Logger } from "../core";
-import type { Prop } from "../query";
+import type { Prop } from "./query";
 const freeze = Object.freeze;
 
 export type Result = { candidates: ReadonlySet<number> | null, exact: boolean };

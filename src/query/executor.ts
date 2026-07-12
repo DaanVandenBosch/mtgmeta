@@ -1,20 +1,20 @@
-import type { Cards, Sort_Order } from "./cards";
-import { Nop_Logger, type Logger } from "./core";
-import { type Query } from "./query";
-import { find_cards_matching_query, PROPS_REQUIRED_FOR_DISPLAY } from "./query_eval";
-import { query_hash } from "./query_hash";
-import type { Subset_Store } from "./subset";
+import type { Cards, Sort_Order } from "../cards";
+import { Nop_Logger, type Logger } from "../core";
+import { PROPS_REQUIRED_FOR_DISPLAY, type Query } from "./query";
+import { query_hash } from "./hash";
+import type { Subset_Store } from "../subset";
+import type { Query_Engine_Interface } from "./engine";
 
 export class Query_Executor {
     private readonly logger: Logger;
     private readonly cards: Cards;
-    private readonly subset_store: Subset_Store;
+    private readonly engine: Query_Engine_Interface;
     private readonly executions_underway: Map<bigint, Promise<readonly number[]>> = new Map;
 
-    constructor(logger: Logger, cards: Cards, subset_store: Subset_Store) {
+    constructor(logger: Logger, cards: Cards, engine: Query_Engine_Interface) {
         this.logger = logger;
         this.cards = cards;
-        this.subset_store = subset_store;
+        this.engine = engine;
     }
 
     /** Preloads properties and sorter needed for a given query and sort order. */
@@ -117,8 +117,7 @@ export class Query_Executor {
         logger.time_end('load');
         logger.time('find_cards_matching_query');
 
-        const card_indexes =
-            find_cards_matching_query(this.cards, this.subset_store, query, () => Nop_Logger);
+        const card_indexes = this.engine.execute(this.logger, () => Nop_Logger, query);
 
         logger.time_end('find_cards_matching_query');
         logger.time('load_sorter');
