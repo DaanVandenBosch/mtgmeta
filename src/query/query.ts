@@ -1,3 +1,5 @@
+import { EMPTY_MAP, type Logger } from "../core";
+
 const freeze = Object.freeze;
 
 export type Query = {
@@ -105,7 +107,12 @@ export type Subset_Condition = {
     readonly id: string,
 }
 
-export type Mana_Cost = { readonly [mana_type: string]: number };
+export type Mana_Cost = Mana_Cost_None | Mana_Cost_Some;
+export type Mana_Cost_None = { readonly none: true };
+export type Mana_Cost_Some = {
+    readonly none: false,
+    readonly symbols: ReadonlyMap<string, number>,
+};
 
 export type Subset = {
     readonly id: string,
@@ -171,6 +178,9 @@ export const MANA_SNOW = 'S';
 export const MANA_PHYREXIAN = 'P';
 export const MANA_WUBRG = freeze([MANA_WHITE, MANA_BLUE, MANA_BLACK, MANA_RED, MANA_GREEN]);
 
+export const MANA_COST_NONE: Mana_Cost = freeze({ none: true });
+export const MANA_COST_ZERO: Mana_Cost = freeze({ none: false, symbols: EMPTY_MAP });
+
 export const RARITY_COMMON: Rarity = 'common';
 export const RARITY_UNCOMMON: Rarity = 'uncommon';
 export const RARITY_RARE: Rarity = 'rare';
@@ -204,4 +214,88 @@ export const QUERY_NONE: Query = freeze({
 
 export function is_property_condition(cond: Condition): cond is Property_Condition {
     return (cond as Property_Condition).prop !== undefined;
+}
+
+export function mana_cost_symbol_count(cost: Mana_Cost): number {
+    return cost.none ? 0 : cost.symbols.size;
+}
+
+export function mana_cost_eq(a: Mana_Cost, b: Mana_Cost, logger: Logger): boolean {
+    if (a.none || b.none) {
+        return a.none === b.none;
+    }
+
+    if (a.symbols.size !== b.symbols.size) {
+        return false;
+    }
+
+    for (const [symbol, b_count] of b.symbols) {
+        const a_count = a.symbols.get(symbol);
+
+        if (a_count !== b_count) {
+            if (a_count === undefined) {
+                logger.log('No symbol', symbol, 'in a:', a, 'b:', b);
+            } else {
+                logger.log('Symbol', symbol, 'value', a_count, '!==', b_count, 'a:', a, 'b:', b);
+            }
+
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/** Returns true if a is a super set of b. */
+export function mana_cost_is_super_set(
+    a: Mana_Cost,
+    b: Mana_Cost,
+    strict: boolean,
+    logger: Logger,
+): boolean {
+    if (a.none) {
+        return !strict && b.none;
+    }
+
+    if (b.none) {
+        return !strict || !a.none;
+    }
+
+    let a_symbols = a.symbols.size;
+    const b_symbols = b.symbols.size;
+
+    if (a_symbols < b_symbols) {
+        logger.log('a has fewer symbols than b.', a, b);
+        return false;
+    }
+
+    let a_total = 0;
+    let b_total = 0;
+
+    for (const [symbol, b_count] of b.symbols) {
+        const a_count = a.symbols.get(symbol) ?? 0;
+
+        if (a_count < b_count) {
+            logger.log('Symbol', symbol, 'value', a_count, '<', b_count, 'a:', a, 'b:', b);
+            return false;
+        }
+
+        a_total += a_count;
+        b_total += b_count;
+    }
+
+    if (!strict) {
+        return true;
+    }
+
+    if (a_total > b_total) {
+        return true;
+    }
+
+    if (a_symbols > b_symbols) {
+        return true;
+    } else {
+        logger.log("a doesn't have more symbols than b.", a, b);
+        return false;
+    }
 }

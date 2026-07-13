@@ -1,5 +1,5 @@
 import { assert, assert_eq, Console_Logger, TEXT_DECODER } from './core';
-import { INEXACT_REGEX, PER_VERSION_PROPS, RARITY_RANK, type Prop, type Rarity } from './query/query';
+import { INEXACT_REGEX, MANA_COST_ZERO, PER_VERSION_PROPS, RARITY_RANK, type Prop, type Rarity } from './query/query';
 import { parse_mana_cost } from './query/parsing';
 
 export type Sort_Order = 'cmc' | 'name' | 'released_at';
@@ -255,17 +255,33 @@ export class Cards {
                 }
 
                 switch (prop) {
-                    case 'colors':
-                    case 'cost': {
+                    case 'colors': {
                         for (const faces of data) {
                             for (let i = 0, len = faces.length; i < len; i++) {
                                 const value_str: string | null = faces[i];
 
-                                // Ignore non-existent values. Also ignore empty mana costs of
-                                // the backside of transform cards.
-                                if (value_str === null
-                                    || (i >= 1 && prop === 'cost' && value_str.length === 0)
-                                ) {
+                                if (value_str === null) {
+                                    // Ignore non-existent values.
+                                    faces[i] = null;
+                                } else if (value_str.length === 0) {
+                                    // Don't parse colorless cards as Mana_Cost_None.
+                                    faces[i] = MANA_COST_ZERO;
+                                } else {
+                                    faces[i] = parse_mana_cost(value_str).cost;
+                                }
+                            }
+                        }
+
+                        break;
+                    }
+
+                    case 'cost': {
+                        for (const faces of data) {
+                            for (let i = 0, len = faces.length; i < len; i++) {
+                                const value_str: string = faces[i];
+
+                                // Ignore empty mana costs of the backside of transform cards.
+                                if ((i >= 1 && value_str.length === 0)) {
                                     faces[i] = null;
                                 } else {
                                     faces[i] = parse_mana_cost(value_str).cost;
@@ -278,7 +294,14 @@ export class Cards {
 
                     case 'identity': {
                         for (let i = 0, len = data.length; i < len; i++) {
-                            data[i] = parse_mana_cost(data[i]).cost;
+                            const value_str: string = data[i];
+
+                            if (value_str.length === 0) {
+                                // Don't parse colorless cards as Mana_Cost_None.
+                                data[i] = MANA_COST_ZERO;
+                            } else {
+                                data[i] = parse_mana_cost(value_str).cost;
+                            }
                         }
 
                         break;

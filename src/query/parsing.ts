@@ -1,4 +1,4 @@
-import { assert, unreachable, string_to_int, type Mutable } from '../core';
+import { assert, unreachable, string_to_int } from '../core';
 import {
     type Query,
     type Prop,
@@ -29,6 +29,7 @@ import {
     INEXACT_REGEX,
     TRUE_CONDITION,
     FALSE_CONDITION,
+    MANA_COST_NONE,
 } from './query';
 const freeze = Object.freeze;
 
@@ -359,146 +360,185 @@ class Query_Parser {
         }
 
         value_string = value_string.toLocaleLowerCase('en');
-        let value: Mutable<Mana_Cost> | null = null;
+        let symbols: Map<string, number> = new Map;
 
         switch (value_string) {
             case 'colorless':
             case 'c':
-                value = {};
                 break;
             case 'white':
-                value = { [MANA_WHITE]: 1 };
+                symbols.set(MANA_WHITE, 1);
                 break;
             case 'blue':
-                value = { [MANA_BLUE]: 1 };
+                symbols.set(MANA_BLUE, 1);
                 break;
             case 'black':
-                value = { [MANA_BLACK]: 1 };
+                symbols.set(MANA_BLACK, 1);
                 break;
             case 'red':
-                value = { [MANA_RED]: 1 };
+                symbols.set(MANA_RED, 1);
                 break;
             case 'green':
-                value = { [MANA_GREEN]: 1 };
+                symbols.set(MANA_GREEN, 1);
                 break;
             case 'azorius':
-                value = { [MANA_WHITE]: 1, [MANA_BLUE]: 1 };
+                symbols.set(MANA_WHITE, 1);
+                symbols.set(MANA_BLUE, 1);
                 break;
             case 'orzhov':
             case 'silverquill':
-                value = { [MANA_WHITE]: 1, [MANA_BLACK]: 1 };
+                symbols.set(MANA_WHITE, 1);
+                symbols.set(MANA_BLACK, 1);
                 break;
             case 'dimir':
-                value = { [MANA_BLUE]: 1, [MANA_BLACK]: 1 };
+                symbols.set(MANA_BLUE, 1);
+                symbols.set(MANA_BLACK, 1);
                 break;
             case 'izzet':
             case 'prismari':
-                value = { [MANA_BLUE]: 1, [MANA_RED]: 1 };
+                symbols.set(MANA_BLUE, 1);
+                symbols.set(MANA_RED, 1);
                 break;
             case 'rakdos':
-                value = { [MANA_BLACK]: 1, [MANA_RED]: 1 };
+                symbols.set(MANA_BLACK, 1);
+                symbols.set(MANA_RED, 1);
                 break;
             case 'golgari':
             case 'witherbloom':
-                value = { [MANA_BLACK]: 1, [MANA_GREEN]: 1 };
+                symbols.set(MANA_BLACK, 1);
+                symbols.set(MANA_GREEN, 1);
                 break;
             case 'gruul':
-                value = { [MANA_RED]: 1, [MANA_GREEN]: 1 };
+                symbols.set(MANA_RED, 1);
+                symbols.set(MANA_GREEN, 1);
                 break;
             case 'boros':
             case 'lorehold':
-                value = { [MANA_RED]: 1, [MANA_WHITE]: 1 };
+                symbols.set(MANA_RED, 1);
+                symbols.set(MANA_WHITE, 1);
                 break;
             case 'selesnya':
-                value = { [MANA_GREEN]: 1, [MANA_WHITE]: 1 };
+                symbols.set(MANA_GREEN, 1);
+                symbols.set(MANA_WHITE, 1);
                 break;
             case 'simic':
             case 'quandrix':
-                value = { [MANA_GREEN]: 1, [MANA_BLUE]: 1 };
+                symbols.set(MANA_GREEN, 1);
+                symbols.set(MANA_BLUE, 1);
                 break;
             case 'bant':
-                value = { [MANA_GREEN]: 1, [MANA_WHITE]: 1, [MANA_BLUE]: 1 };
+                symbols.set(MANA_GREEN, 1);
+                symbols.set(MANA_WHITE, 1);
+                symbols.set(MANA_BLUE, 1);
                 break;
             case 'esper':
-                value = { [MANA_WHITE]: 1, [MANA_BLUE]: 1, [MANA_BLACK]: 1 };
+                symbols.set(MANA_WHITE, 1);
+                symbols.set(MANA_BLUE, 1);
+                symbols.set(MANA_BLACK, 1);
                 break;
             case 'grixis':
-                value = { [MANA_BLUE]: 1, [MANA_BLACK]: 1, [MANA_RED]: 1 };
+                symbols.set(MANA_BLUE, 1);
+                symbols.set(MANA_BLACK, 1);
+                symbols.set(MANA_RED, 1);
                 break;
             case 'jund':
-                value = { [MANA_BLACK]: 1, [MANA_RED]: 1, [MANA_GREEN]: 1 };
+                symbols.set(MANA_BLACK, 1);
+                symbols.set(MANA_RED, 1);
+                symbols.set(MANA_GREEN, 1);
                 break;
             case 'naya':
-                value = { [MANA_RED]: 1, [MANA_GREEN]: 1, [MANA_WHITE]: 1 };
+                symbols.set(MANA_RED, 1);
+                symbols.set(MANA_GREEN, 1);
+                symbols.set(MANA_WHITE, 1);
                 break;
             case 'abzan':
-                value = { [MANA_WHITE]: 1, [MANA_BLACK]: 1, [MANA_GREEN]: 1 };
+                symbols.set(MANA_WHITE, 1);
+                symbols.set(MANA_BLACK, 1);
+                symbols.set(MANA_GREEN, 1);
                 break;
             case 'jeskai':
-                value = { [MANA_BLUE]: 1, [MANA_RED]: 1, [MANA_WHITE]: 1 };
+                symbols.set(MANA_BLUE, 1);
+                symbols.set(MANA_RED, 1);
+                symbols.set(MANA_WHITE, 1);
                 break;
             case 'sultai':
-                value = { [MANA_BLACK]: 1, [MANA_GREEN]: 1, [MANA_BLUE]: 1 };
+                symbols.set(MANA_BLACK, 1);
+                symbols.set(MANA_GREEN, 1);
+                symbols.set(MANA_BLUE, 1);
                 break;
             case 'mardu':
-                value = { [MANA_RED]: 1, [MANA_WHITE]: 1, [MANA_BLACK]: 1 };
+                symbols.set(MANA_RED, 1);
+                symbols.set(MANA_WHITE, 1);
+                symbols.set(MANA_BLACK, 1);
                 break;
             case 'temur':
-                value = { [MANA_GREEN]: 1, [MANA_BLUE]: 1, [MANA_RED]: 1 };
+                symbols.set(MANA_GREEN, 1);
+                symbols.set(MANA_BLUE, 1);
+                symbols.set(MANA_RED, 1);
                 break;
             case 'artifice':
-                value = { [MANA_WHITE]: 1, [MANA_BLUE]: 1, [MANA_BLACK]: 1, [MANA_RED]: 1 };
+                symbols.set(MANA_WHITE, 1);
+                symbols.set(MANA_BLUE, 1);
+                symbols.set(MANA_BLACK, 1);
+                symbols.set(MANA_RED, 1);
                 break;
             case 'chaos':
-                value = { [MANA_BLUE]: 1, [MANA_BLACK]: 1, [MANA_RED]: 1, [MANA_GREEN]: 1 };
+                symbols.set(MANA_BLUE, 1);
+                symbols.set(MANA_BLACK, 1);
+                symbols.set(MANA_RED, 1);
+                symbols.set(MANA_GREEN, 1);
                 break;
             case 'aggression':
-                value = { [MANA_BLACK]: 1, [MANA_RED]: 1, [MANA_GREEN]: 1, [MANA_WHITE]: 1 };
+                symbols.set(MANA_BLACK, 1);
+                symbols.set(MANA_RED, 1);
+                symbols.set(MANA_GREEN, 1);
+                symbols.set(MANA_WHITE, 1);
                 break;
             case 'altruism':
-                value = { [MANA_RED]: 1, [MANA_GREEN]: 1, [MANA_WHITE]: 1, [MANA_BLUE]: 1 };
+                symbols.set(MANA_RED, 1);
+                symbols.set(MANA_GREEN, 1);
+                symbols.set(MANA_WHITE, 1);
+                symbols.set(MANA_BLUE, 1);
                 break;
             case 'growth':
-                value = { [MANA_GREEN]: 1, [MANA_WHITE]: 1, [MANA_BLUE]: 1, [MANA_BLACK]: 1 };
+                symbols.set(MANA_GREEN, 1);
+                symbols.set(MANA_WHITE, 1);
+                symbols.set(MANA_BLUE, 1);
+                symbols.set(MANA_BLACK, 1);
                 break;
-
             default: {
-                value = {};
-
                 for (const c of value_string) {
                     switch (c) {
                         case 'w':
-                            value[MANA_WHITE] = 1;
+                            symbols.set(MANA_WHITE, 1);
                             break;
                         case 'u':
-                            value[MANA_BLUE] = 1;
+                            symbols.set(MANA_BLUE, 1);
                             break;
                         case 'b':
-                            value[MANA_BLACK] = 1;
+                            symbols.set(MANA_BLACK, 1);
                             break;
                         case 'r':
-                            value[MANA_RED] = 1;
+                            symbols.set(MANA_RED, 1);
                             break;
                         case 'g':
-                            value[MANA_GREEN] = 1;
+                            symbols.set(MANA_GREEN, 1);
                             break;
                         default:
                             return null;
                     }
                 }
 
-                if (Object.keys(value).length === 0) {
+                if (symbols.size === 0) {
                     return null;
                 }
             }
         }
 
-        assert(value !== null);
-
         return this.add_prop({
             type: this.operator_to_type(operator, colon_type),
             prop,
-            value: freeze(value),
+            value: freeze({ none: false, symbols }),
         });
     }
 
@@ -587,7 +627,7 @@ class Query_Parser {
     private parse_mana_cost_cond(operator: Operator): Comparison_Condition | null {
         const { cost, len } = parse_mana_cost(this.query_string, this.pos);
 
-        if (Object.keys(cost).length === 0) {
+        if (cost.none) {
             return null;
         }
 
@@ -955,7 +995,7 @@ class Query_Parser {
 
 export function parse_mana_cost(input: string, start = 0): { cost: Mana_Cost, len: number } {
     let pos = start;
-    const cost: Mutable<Mana_Cost> = {};
+    let symbols = new Map<string, number>;
 
     for (; ;) {
         const result = parse_mana_symbol(input, pos);
@@ -965,16 +1005,22 @@ export function parse_mana_cost(input: string, start = 0): { cost: Mana_Cost, le
         }
 
         const { symbol, generic, len } = result;
-        cost[symbol] = (cost[symbol] ?? 0) + (generic ?? 1);
+        symbols.set(symbol, (symbols.get(symbol) ?? 0) + (generic ?? 1));
         pos += len;
     }
 
-    // Can't have a {0} symbol unless the cost is exactly {0}.
-    if (Object.keys(cost).length >= 2 && cost[MANA_GENERIC] === 0) {
-        delete cost[MANA_GENERIC];
+    let mana_cost: Mana_Cost;
+
+    if (symbols.get(MANA_GENERIC) === 0) {
+        symbols.delete(MANA_GENERIC);
+        mana_cost = { none: false, symbols };
+    } else if (symbols.size === 0) {
+        mana_cost = MANA_COST_NONE;
+    } else {
+        mana_cost = { none: false, symbols };
     }
 
-    return { cost: freeze(cost), len: pos - start };
+    return { cost: freeze(mana_cost), len: pos - start };
 }
 
 function parse_mana_symbol(
@@ -1042,7 +1088,7 @@ function parse_mana_symbol(
     //
     // Colors: {W}, {U}, {B}, {R}, {G}
     // Colorless: {C}
-    // Generic: {2}
+    // Generic: {0}, {1}, {2},...
     // Generic X: {X}
     // Snow: {S}
     // Hybrid: {W/U}, {W/B}, {U/B}, {U/R}, {B/R}, {B/G}, {R/G}, {R/W}, {G/W}, {G/U}

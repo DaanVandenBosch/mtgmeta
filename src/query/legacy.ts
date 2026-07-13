@@ -9,11 +9,13 @@ import {
     type Range_Condition,
     type Mana_Cost,
     PER_VERSION_PROPS,
-    MANA_GENERIC,
     type Rarity,
     type Property_Condition,
     RARITY_RANK,
     QUERY_NONE,
+    mana_cost_eq,
+    mana_cost_is_super_set,
+    mana_cost_symbol_count,
 } from './query';
 import { Cards } from '../cards';
 import type { Subset_Store } from '../subset';
@@ -369,27 +371,27 @@ function get_compare_helper(
                 switch (condition.type) {
                     case 'eq':
                         return (value: Mana_Cost, cond: Comparison_Condition) => {
-                            return Object.keys(value).length === (cond.value as number);
+                            return mana_cost_symbol_count(value) === (cond.value as number);
                         }
                     case 'ne':
                         return (value: Mana_Cost, cond: Comparison_Condition) => {
-                            return Object.keys(value).length !== (cond.value as number);
+                            return mana_cost_symbol_count(value) !== (cond.value as number);
                         }
                     case 'gt':
                         return (value: Mana_Cost, cond: Comparison_Condition) => {
-                            return Object.keys(value).length > (cond.value as number);
+                            return mana_cost_symbol_count(value) > (cond.value as number);
                         }
                     case 'lt':
                         return (value: Mana_Cost, cond: Comparison_Condition) => {
-                            return Object.keys(value).length < (cond.value as number);
+                            return mana_cost_symbol_count(value) < (cond.value as number);
                         }
                     case 'ge':
                         return (value: Mana_Cost, cond: Comparison_Condition) => {
-                            return Object.keys(value).length >= (cond.value as number);
+                            return mana_cost_symbol_count(value) >= (cond.value as number);
                         }
                     case 'le':
                         return (value: Mana_Cost, cond: Comparison_Condition) => {
-                            return Object.keys(value).length <= (cond.value as number);
+                            return mana_cost_symbol_count(value) <= (cond.value as number);
                         }
                 }
             } else {
@@ -505,79 +507,5 @@ function get_compare_helper(
                     }
             }
         }
-    }
-}
-
-function mana_cost_eq(a: Mana_Cost, b: Mana_Cost, logger: Logger): boolean {
-    if (Object.keys(a).length !== Object.keys(b).length) {
-        return false;
-    }
-
-    for (const [symbol, b_count] of Object.entries(b)) {
-        const a_count = a[symbol];
-
-        if (a_count !== b_count) {
-            if (a_count === undefined) {
-                logger.log('No symbol', symbol, 'in a:', a, 'b:', b);
-            } else {
-                logger.log('Symbol', symbol, 'value', a_count, '!==', b_count, 'a:', a, 'b:', b);
-            }
-
-            return false;
-        }
-    }
-
-    return true;
-}
-
-/** Returns true if a is a super set of b. */
-function mana_cost_is_super_set(
-    a: Mana_Cost,
-    b: Mana_Cost,
-    strict: boolean,
-    logger: Logger,
-): boolean {
-    let a_symbols = Object.keys(a).length;
-    const b_symbols = Object.keys(b).length;
-
-    if (a_symbols < b_symbols) {
-        logger.log('a has fewer symbols than b.', a, b);
-        return false;
-    }
-
-    let a_total = 0;
-    let b_total = 0;
-
-    for (const [symbol, b_count] of Object.entries(b)) {
-        const a_count = a[symbol] ?? 0;
-
-        if (a_count < b_count) {
-            logger.log('Symbol', symbol, 'value', a_count, '<', b_count, 'a:', a, 'b:', b);
-            return false;
-        }
-
-        a_total += a_count;
-        b_total += b_count;
-    }
-
-    if (!strict) {
-        return true;
-    }
-
-    if (a_total > b_total) {
-        return true;
-    }
-
-    // If b is exactly zero cost, pretend a has a generic zero cost too. This makes queries like
-    // mana<{R} return 0 cost cards.
-    if (b[MANA_GENERIC] === 0 && b_symbols === 1 && !(MANA_GENERIC in a)) {
-        a_symbols += 1;
-    }
-
-    if (a_symbols > b_symbols) {
-        return true;
-    } else {
-        logger.log("a doesn't have more symbols than b.", a, b);
-        return false;
     }
 }

@@ -192,13 +192,17 @@ function values_to_buf(
 }
 
 function mana_cost_to_buf(cost: Mana_Cost, writer: Buffer): void {
-    const types = Object.keys(cost);
-    writer.write_u8(types.length);
+    if (cost.none) {
+        writer.write_u8(0xFF);
+        return;
+    }
 
-    for (const type of types) {
+    writer.write_u8(cost.symbols.size);
+
+    for (const [symbol, amount] of cost.symbols) {
         let int = 0;
 
-        for (const c of type) {
+        for (const c of symbol) {
             switch (c) {
                 case '/':
                     continue;
@@ -238,7 +242,6 @@ function mana_cost_to_buf(cost: Mana_Cost, writer: Buffer): void {
         }
 
         writer.write_u16(int);
-        const amount = cost[type];
         assert(amount >= 0 && amount <= 0xFFFFFFFF);
         writer.write_u32(amount);
     }

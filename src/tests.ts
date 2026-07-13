@@ -11,7 +11,7 @@ import {
     type Logger,
 } from "./core";
 import { Array_Set, Bitset, Bitset_32 } from "./uint_set";
-import { PROPS, type Comparison_Condition, type Condition, type Query } from "./query/query";
+import { PROPS, type Comparison_Condition, type Condition, type Mana_Cost_Some, type Query } from "./query/query";
 import { parse_query } from "./query/parsing";
 import { simplify_query } from "./query/combination";
 import { remove_parenthesized_text, type Cards } from "./cards";
@@ -228,6 +228,16 @@ export const query_test_definitions: Array<Query_Test_Defininition> = [
         expected: ['Guttural Response', 'Raggadragga, Goreguts Boss'],
     },
     {
+        desc: 'color=0',
+        query: 'color=0 m>{13}',
+        expected: ['Emrakul, the Aeons Torn', 'Mox Lotus', 'Draco', 'Gleemax'],
+    },
+    {
+        desc: 'color=colorless',
+        query: 'color=colorless m>{13}',
+        expected: ['Emrakul, the Aeons Torn', 'Mox Lotus', 'Draco', 'Gleemax'],
+    },
+    {
         // Same as >=
         desc: 'color:',
         query: 'c:gr scrapper',
@@ -247,6 +257,11 @@ export const query_test_definitions: Array<Query_Test_Defininition> = [
         desc: 'identity=',
         query: 'identity=gr glade',
         expected: ['Cinder Glade'],
+    },
+    {
+        desc: 'identity=colorless',
+        query: 'identity=colorless m>{13}',
+        expected: ['Emrakul, the Aeons Torn', 'Mox Lotus', 'Draco', 'Gleemax'],
     },
     {
         // Same as <=
@@ -860,7 +875,7 @@ export async function run_test_suite(cards: Cards, indices: Indices) {
             {
                 type: 'eq',
                 prop: 'cost',
-                value: { 'N': 2, 'R/G': 1 },
+                value: { none: false, symbols: new Map([['N', 2], ['R/G', 1]]) },
             },
             {
                 type: 'substring',
@@ -975,8 +990,9 @@ export async function run_test_suite(cards: Cards, indices: Indices) {
                     };
                 } else {
                     // Assume it's a mana cost.
-                    assert(!('X' in changed.condition[k]));
-                    changed.condition[k]['X'] = 1;
+                    const mana_cost: Mana_Cost_Some = changed.condition[k];
+                    assert(!mana_cost.symbols.has('X'));
+                    (mana_cost.symbols as Map<string, number>).set('X', 1);
                 }
 
                 for (const changed_query of changed_queries) {
